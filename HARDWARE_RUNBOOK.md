@@ -60,12 +60,37 @@ sudo apt install -y python3-venv python3-pip cmake build-essential \
 ```
 
 ### 2. dlib / face_recognition (the ARM64 gotcha)
-There is **no PyPI ARM64 wheel** for dlib. Use piwheels first; only fall back to
-a source build (2–4 h on a Pi) if that fails:
+There is **no PyPI ARM64 wheel** for dlib. On **Raspberry Pi OS Bookworm (Python
+3.11)**, use piwheels first; only fall back to a source build (2–4 h on a Pi) if
+that fails:
 ```bash
 pip install dlib --index-url https://www.piwheels.org/simple
 pip install face_recognition
 ```
+
+**On Debian Trixie / Python 3.13 / aarch64, piwheels has no dlib wheel** (it
+lags new Python versions), so the command above triggers the multi-hour source
+compile. Don't. Trixie ships *only* 3.13 (no apt `python3.11`), so the clean,
+no-compile path is **Miniforge + conda-forge** (prebuilt aarch64 dlib) on a 3.11
+env — this was the real bring-up sequence:
+```bash
+wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
+bash Miniforge3-Linux-aarch64.sh -b -p ~/miniforge3
+~/miniforge3/bin/conda init bash && exec bash
+conda create -y -n philosopher python=3.11
+conda activate philosopher
+conda install -y -c conda-forge dlib        # prebuilt — seconds, not hours
+cd ~/philosopher/philosopher-server && pip install -e ".[dev]"
+```
+Then two stale-`face_recognition` snags (now pinned in `pyproject.toml`, but
+here's why): its ~100 MB model blobs aren't always auto-pulled, and it imports
+`pkg_resources`, which **setuptools≥81 removed** — so a fresh env needs:
+```bash
+pip install "setuptools<81"                  # restores pkg_resources
+python -c "import dlib, face_recognition; print('vision stack ok')"
+```
+The systemd unit's `ExecStart` then points at the conda env, e.g.
+`/home/<you>/miniforge3/envs/philosopher/bin/philosopher-server --server`.
 
 ### 3. piper TTS binary (a system binary, NOT a pip package)
 Without it, TTS returns empty bytes → the toy gets text but no speech.
