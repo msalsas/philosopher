@@ -232,11 +232,24 @@ class Orchestrator:
             await self.memory.close()
 
     async def health(self) -> dict[str, Any]:
-        h = {"status": "ok", "running": self._running}
+        h: dict[str, Any] = {"status": "ok", "running": self._running}
         if self.llm:
             h["llm"] = await self.llm.health_check()
         if self.memory:
             h["memory"] = await self.memory.long.stats()
+        # Surface engine readiness so a missing model/binary shows up here instead
+        # of as "runs but does nothing" (esp. STT: an unavailable model now drops
+        # speech rather than fabricating it, and that state is visible).
+        if self.stt:
+            h["stt"] = self.stt.status()
+        if self.vision:
+            h["vision"] = self.vision.status()
+        if self.tts:
+            h["tts"] = self.tts.status()
+        # Roll a degraded engine up into the top-level status for quick monitoring.
+        engines = [h.get("stt", {}), h.get("vision", {}), h.get("tts", {})]
+        if any(e.get("status") in ("unavailable", "degraded") for e in engines):
+            h["status"] = "degraded"
         return h
 
 

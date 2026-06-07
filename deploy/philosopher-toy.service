@@ -1,0 +1,29 @@
+# Philosopher TOY (the body) — runs on the Banana Pi BPi-M2 Zero inside the toy.
+#
+# Install:
+#   sudo cp deploy/philosopher-toy.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now philosopher-toy
+#   journalctl -u philosopher-toy -f
+#
+# The toy needs hardware access: add its user to the gpio/audio/video groups
+#   sudo usermod -aG gpio,audio,video pi
+# Set PHILOSOPHER_SERVER_URL to the Pi's address in the .env below. The client
+# already auto-reconnects, so a server restart doesn't need a toy restart.
+[Unit]
+Description=Philosopher toy I/O client (Banana Pi body)
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/philosopher/philosopher-toy
+# PHILOSOPHER_SERVER_URL=ws://<pi-ip>:8080, PHILOSOPHER_TOY_ID, CAMERA_FPS, etc.
+EnvironmentFile=-/home/pi/philosopher/philosopher-toy/.env
+ExecStart=/home/pi/philosopher/philosopher-toy/.venv/bin/philosopher-toy
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

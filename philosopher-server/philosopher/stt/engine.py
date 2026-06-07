@@ -1,7 +1,11 @@
 """Server-side batch STT using faster-whisper."""
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class StreamingSTT:
@@ -10,14 +14,33 @@ class StreamingSTT:
     def __init__(self, model_size: str = "tiny", device: str = "cpu",
                  compute_type: str = "int8", mock: bool = False):
         self.mock = mock
+        self.model_size = model_size
         self.model = None
+        self.load_error: str | None = None
+        self._warned_unavailable = False
         if not mock:
             try:
                 from faster_whisper import WhisperModel
                 self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001
+                # Real mode but the model didn't load. This is NOT a benign
+                # degrade: without STT the toy can't hear anything. Make it loud
+                # here (once) and surface it on /health — never silently pretend.
+                self.load_error = repr(exc)
+                logger.error(
+                    "STT model '%s' failed to load (%s) — speech will be DROPPED, "
+                    "not transcribed. Check faster-whisper install / model cache.",
+                    model_size, exc,
+                )
         self.audio_buffers: dict[str, bytearray] = {}
+
+    def status(self) -> dict:
+        """Engine readiness for /health."""
+        if self.mock:
+            return {"status": "mock", "model": self.model_size}
+        if self.model is None:
+            return {"status": "unavailable", "model": self.model_size, "error": self.load_error}
+        return {"status": "ok", "model": self.model_size}
 
     def add_audio_chunk(self, toy_id: str, pcm_bytes: bytes):
         if toy_id not in self.audio_buffers:
@@ -30,12 +53,28 @@ class StreamingSTT:
     async def transcribe(
         self, toy_id: str, language: str = "es", confidence_threshold: float = -0.5,
     ) -> dict:
-        if self.mock or self.model is None:
+        if self.mock:
             return {
                 "text": "Hello world",
                 "is_final": True,
                 "confidence": 0.9,
                 "low_confidence": False,
+            }
+
+        if self.model is None:
+            # Real mode, no model: drop the utterance rather than fabricate text.
+            # Returning empty makes the caller a no-op (the toy stays silent),
+            # which is the safe failure — far better than answering phantom speech.
+            if not self._warned_unavailable:
+                logger.warning(
+                    "STT unavailable (model failed to load); dropping speech for %s "
+                    "(this warning is logged once)", toy_id,
+                )
+                self._warned_unavailable = True
+            self.audio_buffers[toy_id] = bytearray()
+            return {
+                "text": "", "is_final": True, "confidence": 0.0,
+                "low_confidence": False, "unavailable": True,
             }
 
         buffer = self.audio_buffers.get(toy_id, bytearray())

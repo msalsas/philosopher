@@ -51,8 +51,22 @@ class TestStreamingSTT:
         assert result["is_final"] is True
 
     @pytest.mark.asyncio
-    async def test_model_load_failure_falls_back_to_mock(self):
+    async def test_model_load_failure_drops_speech(self):
+        # Real mode with no model must NOT fabricate "Hello world" (that would
+        # make the toy answer phantom speech forever). It drops the utterance:
+        # empty text + an explicit unavailable flag, so the caller is a no-op.
         stt = StreamingSTT(mock=False)
         stt.model = None  # simulate faster-whisper unavailable / load failure
+        stt.add_audio_chunk("t1", b"\x00" * 32000)
         result = await stt.transcribe("t1")
-        assert result["text"] == "Hello world"
+        assert result["text"] == ""
+        assert result["unavailable"] is True
+
+    def test_status_reports_engine_state(self):
+        assert StreamingSTT(mock=True).status()["status"] == "mock"
+        broken = StreamingSTT(mock=False)
+        broken.model = None
+        assert broken.status()["status"] == "unavailable"
+        loaded = StreamingSTT(mock=False)
+        loaded.model = object()
+        assert loaded.status()["status"] == "ok"

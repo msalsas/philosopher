@@ -54,6 +54,21 @@ class PiperTTS:
         except Exception:
             pass
 
+    def status(self) -> dict:
+        """Engine readiness for /health: is piper on PATH and the voice present?"""
+        if self.mock:
+            return {"status": "mock", "voice": self.voice}
+        import shutil
+        binary = shutil.which("piper")
+        model_ok = Path(self.model_path).exists()
+        if binary and model_ok:
+            return {"status": "ok", "voice": self.voice}
+        # Not fatal (toy still gets text), but the user hears no speech — surface why.
+        return {
+            "status": "degraded", "voice": self.voice,
+            "piper_binary": bool(binary), "voice_model": model_ok,
+        }
+
     async def synthesize(self, text: str) -> bytes:
         if self.mock:
             return b"RIFF\x00\x00\x00\x00WAVEfmt " + b"\x00" * 40

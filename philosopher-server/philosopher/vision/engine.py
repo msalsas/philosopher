@@ -52,6 +52,25 @@ class VisionProcessor:
         self._last_thumb: np.ndarray | None = None
         self._last_result: dict = self._EMPTY
 
+    def status(self) -> dict:
+        """Engine readiness for /health.
+
+        dlib is imported lazily inside ``_recognize`` (fail-open), so probe it
+        here once to report whether real recognition is actually available vs.
+        silently returning no faces.
+        """
+        if self.mock:
+            return {"status": "mock"}
+        try:
+            import face_recognition  # noqa: F401
+            dlib_ok = True
+        except Exception:  # noqa: BLE001
+            dlib_ok = False
+        emotion_ok = self.emotion._ensure_session()
+        if dlib_ok:
+            return {"status": "ok", "face_recognition": True, "emotion": emotion_ok}
+        return {"status": "degraded", "face_recognition": False, "emotion": emotion_ok}
+
     async def process_frame(self, jpeg_bytes: bytes) -> dict:
         if self.mock:
             return {"faces": [], "primary_face": None}

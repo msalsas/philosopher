@@ -43,6 +43,7 @@ External LLM  ──HTTP──▶  philosopher-server (RPi4, the brain)  ◀─�
 cd philosopher-server && pip install -e ".[dev]"
 python scripts/download_models.py       # pre-fetch FER+/Piper/Whisper models (optional)
 python scripts/check_runtime_deps.py    # readiness gate: dlib, piper binary, haar cascade, models (exit≠0 if missing)
+python scripts/validate_hardware.py --faces DIR --emotions DIR --audio DIR --llm --tts  # measure REAL face/emotion accuracy + end-to-end latency on the Pi (exit≠0 if a target is missed)
 python -m philosopher.main --server     # WebSocket + HTTP (default :8080) — production mode
 python -m philosopher.main              # interactive terminal chat (text only, no STT/TTS/vision)
 MOCK_MODE=true python -m philosopher.main --server   # stub STT/vision/TTS, no models needed
@@ -104,7 +105,7 @@ ARM64 install notes:
 
 ## Gotchas (learned the hard way)
 
-- **Everything degrades to a safe default; it does not crash the socket.** Emotion → `"neutral"` if onnxruntime/model missing; TTS → empty bytes (text, no audio) if the `piper` binary/model missing; STT → a mock `"Hello world"` if `faster-whisper` failed to load. So "it runs but does nothing" usually means a missing model/binary, not a logic bug — check those first.
+- **Everything degrades to a safe default; it does not crash the socket.** Emotion → `"neutral"` if onnxruntime/model missing; TTS → empty bytes (text, no audio) if the `piper` binary/model missing; STT → **drops the utterance** (empty text + `unavailable:true`, so the toy stays silent) if `faster-whisper` failed to load — it does *not* fabricate text. The `"Hello world"` stub is **only** for `mock=True` (dev). A failed STT load is logged loudly (`logger.error`) once at startup, and every engine's readiness is surfaced on **`GET /health`** (`stt`/`vision`/`tts` each report `ok`/`mock`/`degraded`/`unavailable`; any non-ok engine rolls the top-level `status` up to `degraded`). So "it runs but does nothing" usually means a missing model/binary, not a logic bug — check `/health` and the startup log first.
 - **`faster-whisper` returns a one-shot generator.** Materialize `segments` to a list before using it twice (`stt/engine.py`); reading it for `text` and again for `confidence` silently yields nothing the second time (and `min([])` raises).
 - **Tests must isolate the SQLite DB.** The default DB (`./data/philosopher_memory.db`) is WAL-mode and shared; tests hitting it concurrently block on the lock and *look* like a hang. Use a `tmp_path` DB via `monkeypatch.setenv("PHILOSOPHER_MEMORY_DB_PATH", …)` + `get_settings.cache_clear()` (see `tests/integration/test_stream.py`).
 - **The WS sentence splitter is `buffer.endswith(('.','!','?','\n'))`.** A token whose terminator is followed by whitespace (e.g. `". "`) won't split until the next terminator, so sentences can batch. Fine for real LLM streams; matters when writing fake token streams in tests.
@@ -130,7 +131,7 @@ files and subproject `README.md`s are stubs that point here).
 ### HTTP API endpoints (`api/app.py`)
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/health` | `{status, llm, memory}` |
+| GET | `/health` | `{status, llm, memory, stt, vision, tts}` — `status` is `degraded` if any engine isn't ok |
 | POST | `/chat` | `{message, face_id?, face_name?, emotion?}` → full 6-node graph (diagnostics/fallback path) |
 | GET | `/personalities` · POST `/personality?name=` | list / switch personality |
 | GET | `/memory/stats` | `{total_memories, known_faces, by_type}` |

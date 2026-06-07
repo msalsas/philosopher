@@ -6,6 +6,50 @@
 
 ---
 
+## 0. Repo & deployment strategy (one repo, both devices)
+
+**Clone the whole repo onto each device — do not split it.** Reasons:
+
+- The tracked repo is ~0.5 MB / ~100 files. The ~60 MB you see locally is
+  downloaded models under `data/`, which is **git-ignored** and re-fetched per
+  device by `download_models.py` — so a full clone costs nothing on either SD card.
+- Each device installs **only its own subproject**, so the Banana Pi never pulls
+  the server's heavy deps (faster-whisper/dlib/onnxruntime). The 512 MB limit is
+  about what you `pip install` and run, not repo size.
+- The WebSocket protocol is the contract between the two halves. In one repo a
+  protocol change is one atomic commit touching both sides — they can't drift.
+
+```bash
+# On BOTH the RPi4 and the Banana Pi:
+git clone <repo-url> ~/philosopher
+
+# RPi4 (brain): install the server only
+cd ~/philosopher/philosopher-server && python -m venv .venv && .venv/bin/pip install -e .
+
+# Banana Pi (body): install the toy only
+cd ~/philosopher/philosopher-toy   && python -m venv .venv && .venv/bin/pip install -e .
+```
+
+Updates are `git pull` on each device (re-run `pip install -e .` only if deps
+changed). **Never `git add` the `data/` dir** — it holds the SQLite memory DB
+with face encodings (biometric data) + transcripts; `.gitignore` already blocks
+it, but don't force it.
+
+**Autostart** with the provided systemd units (run on crash-restart):
+```bash
+# RPi4:
+sudo cp ~/philosopher/deploy/philosopher-server.service /etc/systemd/system/
+sudo systemctl enable --now philosopher-server
+# Banana Pi (add the user to hardware groups first):
+sudo usermod -aG gpio,audio,video $USER
+sudo cp ~/philosopher/deploy/philosopher-toy.service /etc/systemd/system/
+sudo systemctl enable --now philosopher-toy
+```
+Edit `User=`/paths in the unit files to match your install. Put per-device
+settings in a `.env` beside each subproject (also git-ignored).
+
+---
+
 ## A. Server — Raspberry Pi 4 (the brain)
 
 ### 1. System packages
@@ -40,6 +84,23 @@ python scripts/check_runtime_deps.py      # <-- readiness gate; expect all [ ok 
 ```
 `check_runtime_deps.py` exits non-zero and prints `[FAIL]` lines for anything
 missing (dlib, piper, haar cascade). Get it fully green before going further.
+
+Deps green only proves the engines *load*, not that they *work*. Once you have a
+few captured samples, measure the real numbers (the unit suite can't — it mocks
+all ML):
+```bash
+python scripts/validate_hardware.py \
+    --faces samples/faces \       # samples/faces/<person>/*.jpg  (>=2 each: 1 enrol + probes)
+    --emotions samples/emotions \ # samples/emotions/<happy|sad|angry|...>/*.jpg
+    --audio samples/audio \       # samples/audio/*.wav (16kHz mono) + optional *.txt transcript
+    --llm --tts
+```
+It reports face-identity accuracy, an emotion confusion matrix, per-stage latency,
+and the composite **speech_ended → first audio** time, exiting non-zero if a
+target is missed. Run with no args for a latency-only smoke check. These three
+numbers — recognition accuracy, emotion accuracy, end-to-end latency — are the
+ones that decide whether the product actually works; treat them as the bring-up
+gate, not the green unit suite.
 
 ### 5. Run
 ```bash

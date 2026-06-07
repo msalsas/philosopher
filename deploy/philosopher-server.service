@@ -1,0 +1,33 @@
+# Philosopher SERVER (the brain) — runs on the Raspberry Pi 4.
+#
+# Install:
+#   sudo cp deploy/philosopher-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now philosopher-server
+#   journalctl -u philosopher-server -f          # follow logs
+#
+# Adjust User/paths to match your Pi. Assumes the repo is cloned at
+# /home/pi/philosopher and a venv was created inside the subproject:
+#   cd /home/pi/philosopher/philosopher-server && python -m venv .venv \
+#     && .venv/bin/pip install -e .
+[Unit]
+Description=Philosopher conversational AI server (RPi4 brain)
+# Wait for the network so the external LLM endpoint is reachable at start.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/philosopher/philosopher-server
+# PHILOSOPHER_* settings (LLM_BASE_URL, API_PORT, etc.) live here. "-" = optional.
+EnvironmentFile=-/home/pi/philosopher/philosopher-server/.env
+ExecStart=/home/pi/philosopher/philosopher-server/.venv/bin/philosopher-server --server
+Restart=on-failure
+RestartSec=3
+# faster-whisper + dlib + onnxruntime can spike RAM; let systemd restart rather
+# than let the box OOM-thrash. Tune to taste on the 4GB Pi.
+MemoryMax=3G
+
+[Install]
+WantedBy=multi-user.target
