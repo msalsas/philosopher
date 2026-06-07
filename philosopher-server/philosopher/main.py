@@ -71,13 +71,21 @@ def main():
         orch.stt = StreamingSTT(
             model_size=settings.stt.model,
             device=settings.stt.device,
+            compute_type=settings.stt.compute_type,
             mock=mock,
         )
         orch.vision = VisionProcessor(
             memory_manager=orch.memory,
             mock=mock,
             emotion_model_path=settings.vision.emotion_model_path,
+            detect_width=settings.vision.detect_width,
+            presence_gate=settings.vision.presence_gate,
+            skip_similar=settings.vision.skip_similar,
+            skip_threshold=settings.vision.skip_threshold,
+            merge_band=settings.vision.merge_band,
         )
+        # Let the name-registration node reach vision for biometric dedup.
+        orch.graph.ctx.vision = orch.vision
         orch.tts = PiperTTS(
             model_path=settings.tts.model_path,
             voice=settings.tts.voice,

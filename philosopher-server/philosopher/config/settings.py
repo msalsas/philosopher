@@ -60,6 +60,9 @@ class STTSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PHILOSOPHER_STT_")
     model: str = "tiny"
     device: str = "cpu"
+    # faster-whisper quantization. "int8" suits CPU (the RPi4); use "float16" on
+    # a CUDA GPU. Decoupled from device so a laptop/GPU can be tuned via env.
+    compute_type: str = "int8"
     confidence_threshold: float = -0.5
 
 
@@ -69,6 +72,20 @@ class VisionSettings(BaseSettings):
     quality: int = 60
     # Path to the FER+ emotion ONNX model. Empty = auto-download to ./data/fer_models/
     emotion_model_path: str = ""
+    # --- Frame-processing optimizations (cheap gates before expensive dlib) ---
+    # Width (px) the frame is downscaled to for detection; 0 disables downscaling.
+    detect_width: int = 480
+    # Cheap OpenCV Haar presence check before running dlib; skips the expensive
+    # encoding path entirely on the (common) frames with nobody in view.
+    presence_gate: bool = True
+    # Skip frames that barely changed vs the last processed one (static scene).
+    skip_similar: bool = True
+    # Mean per-pixel grayscale delta (0-255) below which a frame counts as "same".
+    skip_threshold: float = 2.0
+    # Name-collision merge: a new face is folded into a same-named known face only
+    # if their encodings are within this distance. Must be ≥ tolerance; the gap
+    # (tolerance..merge_band) is the "same person, face drifted" band. Tune on hardware.
+    merge_band: float = 0.68
 
 
 class TTSSettings(BaseSettings):

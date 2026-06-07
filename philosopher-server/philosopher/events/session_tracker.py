@@ -17,6 +17,8 @@ class SessionTracker:
     """Aggregates interaction stats per recognized face."""
 
     _ANON = "_anon"
+    # A face counts as "present now" if it was seen within this many seconds.
+    PRESENCE_WINDOW = 10.0
 
     def __init__(self) -> None:
         self.sessions: dict[str, dict[str, Any]] = {}
@@ -33,7 +35,8 @@ class SessionTracker:
         if s is None:
             now = time.time()
             s = {"name": None, "messages": 0, "responses": 0,
-                 "emotions": {}, "first_seen": now, "last_seen": now}
+                 "emotions": {}, "current_emotion": None, "last_emotion_at": 0.0,
+                 "first_seen": now, "last_seen": now}
             self.sessions[fid] = s
         return s
 
@@ -47,6 +50,9 @@ class SessionTracker:
         s = self._s(event.get("face_id"))
         emo = event.get("emotion") or "neutral"
         s["emotions"][emo] = s["emotions"].get(emo, 0) + 1
+        s["current_emotion"] = emo
+        s["last_emotion_at"] = time.time()
+        s["last_seen"] = time.time()
 
     async def _on_text(self, event: Event) -> None:
         s = self._s(event.get("face_id"))
@@ -57,4 +63,10 @@ class SessionTracker:
         self._s(event.get("face_id"))["responses"] += 1
 
     def snapshot(self) -> dict[str, dict[str, Any]]:
-        return {fid: dict(s) for fid, s in self.sessions.items()}
+        now = time.time()
+        out: dict[str, dict[str, Any]] = {}
+        for fid, s in self.sessions.items():
+            d = dict(s)
+            d["present"] = (now - s["last_seen"]) < self.PRESENCE_WINDOW
+            out[fid] = d
+        return out

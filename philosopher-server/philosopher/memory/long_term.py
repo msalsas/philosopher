@@ -134,6 +134,53 @@ class LongTermMemory:
         )
         await db.commit()
 
+    async def find_face_by_name(
+        self, name: str, exclude_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the best-established face already carrying this name, if any.
+
+        Only a *candidate* — name is not a unique key (two people can be "Pedro").
+        The caller confirms identity biometrically before merging.
+        """
+        db = await self._get_db()
+        cur = await db.execute(
+            "SELECT face_id, name, encounters FROM known_faces "
+            "WHERE name=? AND face_id!=? ORDER BY encounters DESC LIMIT 1",
+            (name, exclude_id or ""),
+        )
+        row = await cur.fetchone()
+        if row:
+            return {"face_id": row[0], "name": row[1], "encounters": row[2]}
+        return None
+
+    async def merge_face(
+        self, src_id: str, dst_id: str, encoding: bytes | None = None,
+    ) -> None:
+        """Fold the freshly-minted `src` face into the known `dst` face.
+
+        Reassigns src's stored memories to dst, refreshes dst (and optionally its
+        encoding, so future recognition matches what was just seen), then deletes
+        the duplicate src record. Caller must have confirmed it's the same person.
+        """
+        db = await self._get_db()
+        await db.execute(
+            "UPDATE memories SET face_id=? WHERE face_id=?", (dst_id, src_id),
+        )
+        if encoding is not None:
+            await db.execute(
+                "UPDATE known_faces SET last_seen=?, encounters=encounters+1, "
+                "encoding=? WHERE face_id=?",
+                (time.time(), encoding, dst_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE known_faces SET last_seen=?, encounters=encounters+1 "
+                "WHERE face_id=?",
+                (time.time(), dst_id),
+            )
+        await db.execute("DELETE FROM known_faces WHERE face_id=?", (src_id,))
+        await db.commit()
+
     async def all_faces(self) -> list[dict]:
         db = await self._get_db()
         cur = await db.execute("SELECT * FROM known_faces ORDER BY last_seen DESC")

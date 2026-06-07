@@ -7,13 +7,14 @@ import numpy as np
 class StreamingSTT:
     """Batch STT that accumulates audio and transcribes on speech_ended."""
 
-    def __init__(self, model_size: str = "tiny", device: str = "cpu", mock: bool = False):
+    def __init__(self, model_size: str = "tiny", device: str = "cpu",
+                 compute_type: str = "int8", mock: bool = False):
         self.mock = mock
         self.model = None
         if not mock:
             try:
                 from faster_whisper import WhisperModel
-                self.model = WhisperModel(model_size, device=device, compute_type="int8")
+                self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
             except Exception:
                 pass
         self.audio_buffers: dict[str, bytearray] = {}

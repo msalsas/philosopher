@@ -1,6 +1,9 @@
 """Tests for face registration background extraction."""
 from __future__ import annotations
 
+import asyncio
+
+import numpy as np
 import pytest
 import pytest_asyncio
 
@@ -10,11 +13,12 @@ from philosopher.config.settings import (
     PersonalitySettings,
     Settings,
 )
-from philosopher.core.nodes import NodeCtx, background_extract_name
+from philosopher.core.nodes import NodeCtx, background_extract_name, node_store
 from philosopher.core.state import AgentState
 from philosopher.llm.client import LLMClient
 from philosopher.memory.manager import MemoryManager
 from philosopher.personality.engine import PersonalityEngine
+from philosopher.vision.engine import VisionProcessor
 
 
 @pytest_asyncio.fixture
@@ -29,7 +33,10 @@ async def ctx(tmp_dir):
     pe = PersonalityEngine(s.personality)
     mem = MemoryManager(s.memory, llm)
     await mem.init()
-    return NodeCtx(llm, mem, pe)
+    yield NodeCtx(llm, mem, pe)
+    # Close the aiosqlite connection so its worker thread doesn't raise during
+    # teardown (these tests schedule real background DB tasks).
+    await mem.close()
 
 
 @pytest.mark.asyncio
@@ -59,3 +66,63 @@ async def test_extract_name_not_new_face(ctx):
     await background_extract_name(state, ctx)
     face = await ctx.memory.long.get_face("f3")
     assert face is None
+
+
+async def _seed_two_faces(ctx, fresh_enc, known_enc):
+    """A known 'Pedro' plus a freshly-minted face, wired into DB + vision."""
+    ref = np.asarray(known_enc, dtype=np.float64)
+    new = np.asarray(fresh_enc, dtype=np.float64)
+    await ctx.memory.long.add_face("known", ref.tobytes(), name="Pedro")
+    await ctx.memory.long.add_face("fresh", new.tobytes())
+    await ctx.memory.long.store("hola", face_id="fresh", face_name="Pedro")
+    vp = VisionProcessor(mock=False)
+    vp.known_faces = {
+        "known": {"name": "Pedro", "encoding": ref},
+        "fresh": {"name": None, "encoding": new},
+    }
+    ctx.vision = vp
+    return vp
+
+
+@pytest.mark.asyncio
+async def test_dedup_merges_same_person(ctx):
+    # Same person, face drifted: encodings within merge_band → fold fresh into known.
+    ref = np.linspace(0, 1, 128)
+    vp = await _seed_two_faces(ctx, fresh_enc=ref + 0.001, known_enc=ref)
+    state = AgentState(user_message="Soy Pedro", face_id="fresh", is_new_face=True)
+    await background_extract_name(state, ctx)
+
+    assert await ctx.memory.long.get_face("fresh") is None      # duplicate removed
+    assert (await ctx.memory.long.get_face("known"))["name"] == "Pedro"
+    assert "fresh" not in vp.known_faces                         # vision repointed
+
+
+@pytest.mark.asyncio
+async def test_dedup_keeps_namesake_separate(ctx):
+    # Different people who share the name: encodings far apart → keep both.
+    ref = np.linspace(0, 1, 128)
+    vp = await _seed_two_faces(ctx, fresh_enc=ref + 5.0, known_enc=ref)
+    state = AgentState(user_message="Soy Pedro", face_id="fresh", is_new_face=True)
+    await background_extract_name(state, ctx)
+
+    assert (await ctx.memory.long.get_face("fresh"))["name"] == "Pedro"  # kept + labeled
+    assert await ctx.memory.long.get_face("known") is not None
+    assert "fresh" in vp.known_faces                                     # not merged
+
+
+@pytest.mark.asyncio
+async def test_node_store_logs_background_failure(ctx, caplog, monkeypatch):
+    # The fire-and-forget name task must surface its errors, not swallow them.
+    async def boom(*a, **k):
+        raise RuntimeError("db exploded")
+
+    monkeypatch.setattr(ctx.memory.long, "get_face", boom)
+    state = AgentState(user_message="Soy Ana", face_id="fX", is_new_face=True,
+                       formatted="hola")
+
+    with caplog.at_level("ERROR", logger="philosopher.core.nodes"):
+        await node_store(state, ctx)
+        await asyncio.sleep(0.05)
+
+    assert any("db exploded" in str(r.exc_info) or "db exploded" in r.getMessage()
+               for r in caplog.records), "the background task failure should be logged"

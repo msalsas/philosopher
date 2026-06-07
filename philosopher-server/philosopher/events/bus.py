@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class EventType(Enum):
@@ -77,11 +80,25 @@ class EventBus:
             try:
                 event = await asyncio.wait_for(self._queue.get(), timeout=1.0)
                 for h in self._subs.get(event.type, []):
-                    asyncio.create_task(h(event))
+                    self._spawn(h, event)
                 for h in self._globals:
-                    asyncio.create_task(h(event))
+                    self._spawn(h, event)
             except asyncio.TimeoutError:
                 continue
+
+    def _spawn(self, handler: Handler, event: Event) -> None:
+        # Fire-and-forget, but never silently: a handler that raises must surface
+        # in the log instead of vanishing as an unretrieved task exception.
+        task = asyncio.create_task(handler(event))
+        task.add_done_callback(self._log_handler_error)
+
+    @staticmethod
+    def _log_handler_error(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("event handler failed: %r", exc, exc_info=exc)
 
     def subscribe(self, event_type: EventType, handler: Handler):
         if handler not in self._subs[event_type]:

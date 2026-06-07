@@ -17,7 +17,7 @@ External LLM  ──HTTP──▶  philosopher-server (RPi4, the brain)  ◀─�
 
 ### Server-side AI modules (the heavy lifting, all here)
 - `stt/engine.py` — `faster-whisper` batch STT. Toy VAD sends `speech_started`/`speech_ended`; server accumulates PCM chunks and transcribes once at `speech_ended` (no server-side VAD).
-- `vision/engine.py` — `face_recognition` (dlib) for identity + `vision/emotion.py` (FER+ ONNX via `onnxruntime`) for emotion, on JPEG frames decoded with OpenCV. (DeepFace/TensorFlow was removed — too heavy on ARM and contended Whisper for cores.)
+- `vision/engine.py` — `face_recognition` (dlib) for identity + `vision/emotion.py` (FER+ ONNX via `onnxruntime`) for emotion, on JPEG frames decoded with OpenCV. (DeepFace/TensorFlow was removed — too heavy on ARM and contended Whisper for cores.) **Three cheap gates run before the expensive dlib path**, all *fail-open* (run the full path on doubt, so they never blind the toy): (1) static-frame skip (reuse last result when the frame barely changed), (2) downscale to `detect_width` for detection (boxes scaled back; `offset_x` is normalized so scale-invariant), (3) an OpenCV **Haar presence check** — no face → dlib is skipped entirely (the common "nobody around" frame). All tunable via `PHILOSOPHER_CAMERA_*` (`DETECT_WIDTH`, `PRESENCE_GATE`, `SKIP_SIMILAR`, `SKIP_THRESHOLD`). The dlib pipeline lives in `_recognize()`.
 - `tts/engine.py` — **Piper**, invoked as a `subprocess` (`piper` binary, NOT a pip package). Synthesizes one WAV per sentence, sent to the toy as a binary frame.
 - `core/orchestrator.py` — the WebSocket request path. See "split-graph streaming" below.
 
@@ -42,6 +42,7 @@ External LLM  ──HTTP──▶  philosopher-server (RPi4, the brain)  ◀─�
 # Server (the brain — RPi4). Needs the `piper` binary on PATH for real TTS.
 cd philosopher-server && pip install -e ".[dev]"
 python scripts/download_models.py       # pre-fetch FER+/Piper/Whisper models (optional)
+python scripts/check_runtime_deps.py    # readiness gate: dlib, piper binary, haar cascade, models (exit≠0 if missing)
 python -m philosopher.main --server     # WebSocket + HTTP (default :8080) — production mode
 python -m philosopher.main              # interactive terminal chat (text only, no STT/TTS/vision)
 MOCK_MODE=true python -m philosopher.main --server   # stub STT/vision/TTS, no models needed
@@ -63,7 +64,7 @@ pytest tests/ -v
 
 Server settings are `PHILOSOPHER_*` env vars (from `.env`), validated by nested Pydantic models in `philosopher-server/philosopher/config/settings.py`. Note the prefixes don't all match their section name:
 - LLM → `PHILOSOPHER_LLM_*`, Memory → `PHILOSOPHER_MEMORY_*`, API → `PHILOSOPHER_API_*`
-- STT → `PHILOSOPHER_STT_*` (`MODEL=tiny|base|small`, `DEVICE`, `CONFIDENCE_THRESHOLD`)
+- STT → `PHILOSOPHER_STT_*` (`MODEL=tiny|base|small`, `DEVICE`, `COMPUTE_TYPE`, `CONFIDENCE_THRESHOLD`). `COMPUTE_TYPE` is decoupled from `DEVICE`: `int8` for CPU (the RPi4), `float16` on a CUDA GPU.
 - **Vision/camera → `PHILOSOPHER_CAMERA_*`** (`FPS`, `QUALITY`) — the class is `VisionSettings` but the env prefix is `CAMERA`.
 - TTS → `PHILOSOPHER_TTS_*` (`VOICE`, `MODEL_PATH`, `ENABLED`)
 - Personality/logging use the bare `PHILOSOPHER_` prefix (`PHILOSOPHER_PERSONALITY`, `PHILOSOPHER_LANGUAGE`, `PHILOSOPHER_LOG_LEVEL`, …).
@@ -79,10 +80,11 @@ Server settings are `PHILOSOPHER_*` env vars (from `.env`), validated by nested 
 - **Servos move one at a time, sequentially.** The 512MB toy's MicroUSB power rail browns out if multiple servos start together — `hardware/servos.py` queues moves with delays. Don't parallelize servo motion.
 - **TTS is a binary, not a package.** Real audio requires the `piper` executable installed on the RPi; without it, `tts/engine.py` returns empty bytes and the toy gets text but no speech.
 - **Multi-person is first-class.** Several people use one toy. Both long-term *and* short-term memory are keyed by `face_id` (`ShortTermMemory` has one deque per person; unknown → `_anon` bucket) so one person's recent turns never leak into another's context. Face identity is by encoding distance (robust). **Limitation:** the spoken turn is attributed to the **dominant face** at `speech_ended` (no voice diarization).
+- **Identity is the face; the name is just a label on it — and a name is NOT a unique key** (two people can be "Pedro"). When a freshly-minted face gets a name (`background_extract_name`) that matches an existing record, it is folded in **only if the biometrics agree**: `VisionProcessor.maybe_merge` merges into the known face only when their encodings are within `merge_band` (`PHILOSOPHER_CAMERA_MERGE_BAND`, default 0.68, must be ≥ `tolerance`) — "same person whose face drifted". A genuine namesake (encodings far apart) stays a separate record. The merge reconciles **both** the DB (`LongTermMemory.merge_face`: reassign memories, refresh encoding, delete the duplicate) **and** vision's in-memory `known_faces` (else the next frame re-mints the deleted id). Without biometrics available (mock/no encoding) it never merges — the safe default. *(`merge_band` needs tuning on real hardware; the name-extraction heuristic itself is still the crude 1–3-word last-token regex.)*
 - **Both reply paths share assembly + fallbacks.** HTTP `node_think` and WS `_stream_response` both call `build_messages(state)` (incl. new-face introduction / name-ask) so they can't drift. Fallbacks are **localized** via the personality YAML (`fallbacks:` section → `personality.fallback(key)`), not hardcoded English.
 - **LLM stream errors are never spoken.** `chat_stream` lets exceptions propagate; `_stream_response` catches them and, if nothing usable was produced, sends one localized fallback (`personality.fallback("error")`) — it does **not** yield `[error]` text into the spoken stream.
 - **The mic is half-duplex (anti-echo).** `MicrophoneCapture` takes a `gate` callable; the toy gates it on `AudioPlayer.is_playing` (+~300 ms tail) so it never transcribes its own TTS. No echo cancellation needed.
-- **The event bus is wired, with a live dashboard.** `events/bus.py` has two consumers: `SessionTracker` (per-person stats → `GET /sessions`) and `DashboardHub` (SSE fan-out). Orchestrator emits `FACE_RECOGNIZED`/`EMOTION_DETECTED`/`USER_TEXT`/`RESPONSE_READY`. The dashboard is a self-contained page at **`GET /dashboard`** (HTML in `events/dashboard.py`) that polls `/sessions` and live-tails **`GET /dashboard/stream`** (text/event-stream). Add a new subscriber to extend it. *(Note: SSE can't be tested via Starlette `TestClient` — `iter_lines` blocks on the infinite stream; the `DashboardHub` fan-out is unit-tested directly instead.)*
+- **The event bus is wired, with a live dashboard.** `events/bus.py` has two consumers: `SessionTracker` (per-person stats → `GET /sessions`) and `DashboardHub` (SSE fan-out). Handlers are dispatched fire-and-forget but **never silently** — each task gets a done-callback that logs exceptions (`logger.error`), so a raising subscriber surfaces in the log instead of vanishing as an unretrieved task exception, and never stops the other handlers. Orchestrator emits `FACE_RECOGNIZED`/`EMOTION_DETECTED`/`USER_TEXT`/`RESPONSE_READY`. The dashboard is a self-contained page at **`GET /dashboard`** (HTML in `events/dashboard.py`) that polls `/sessions` and live-tails **`GET /dashboard/stream`** (text/event-stream): a "Present now" panel (faces seen within `SessionTracker.PRESENCE_WINDOW` = 10 s, exposed as `present`/`current_emotion` in the snapshot), a per-person emotion histogram, and a live 60 s emotion chart. **Charts are vanilla `<canvas>` — no CDN/external JS on purpose** (the Pi may be offline). Add a new subscriber to extend it. *(Note: SSE can't be tested via Starlette `TestClient` — `iter_lines` blocks on the infinite stream; the `DashboardHub` fan-out is unit-tested directly instead.)*
 
 ## Models & deployment (Raspberry Pi 4)
 
@@ -107,11 +109,67 @@ ARM64 install notes:
 - **Tests must isolate the SQLite DB.** The default DB (`./data/philosopher_memory.db`) is WAL-mode and shared; tests hitting it concurrently block on the lock and *look* like a hang. Use a `tmp_path` DB via `monkeypatch.setenv("PHILOSOPHER_MEMORY_DB_PATH", …)` + `get_settings.cache_clear()` (see `tests/integration/test_stream.py`).
 - **The WS sentence splitter is `buffer.endswith(('.','!','?','\n'))`.** A token whose terminator is followed by whitespace (e.g. `". "`) won't split until the next terminator, so sentences can batch. Fine for real LLM streams; matters when writing fake token streams in tests.
 
-## Doc map — what's authoritative
+## Known limitations / not built yet
 
-The prose docs were written for **v1** and have since been corrected with a v2 banner at the top, but the body text may still describe v1 in places (HTTP-only, AI on the toy, Edge-TTS, "28 + 3" test counts). Order of authority:
+Roadmap-y gaps that the code itself won't tell you (absence isn't self-documenting):
+- **No wake word.** The toy listens continuously via energy VAD — no "Hey Philosopher" hotword. It transcribes any speech at `speech_ended`; there's no explicit "talk to me now" trigger (`WAKE_UP` is an event type, not hotword detection).
+- **No LEDs yet.** `banana_client/hardware/leds.py` does not exist; servos (head + arms) are the only expressive output.
+- **Name capture is crude.** `background_extract_name` only pulls a name from a 1–3 word reply (last token); longer self-introductions ("soy Pedro, ya me conoces") aren't parsed. The biometric dedup band (`merge_band`) still needs tuning on real hardware.
+- **One speaker per turn.** The spoken turn is attributed to the dominant face at `speech_ended` — no voice diarization.
+- **Keyword memory, no embeddings** — by design for the RAM budget (overlap + recency, not semantic). Revisit `sentence-transformers` only if a bigger host makes the RAM cost acceptable.
+
+## Reference
+
+The longer reference material lives here (this file is canonical; the `AGENTS.md`
+files and subproject `README.md`s are stubs that point here).
+
+### Module map
+**Server (`philosopher-server/philosopher/`)** — `config/` (Pydantic settings + `personalities/<lang>/*.yaml`), `core/` (`state·nodes·graph·orchestrator` — the LangGraph pipeline + WS streaming path), `llm/` (OpenAI-compatible async client), `memory/` (`short_term·long_term·manager`), `personality/` (YAML loader + prompt builder + formatter), `stt/` · `vision/` (+`emotion.py`) · `tts/` (the server-side AI engines), `api/` (`app.py` HTTP + `ws_server.py` WebSocket), `events/` (`bus·session_tracker·dashboard`), `utils/`.
+**Toy (`philosopher-toy/banana_client/`)** — `protocol/ws_client.py` (heartbeat + auto-reconnect), `vision/camera.py` (capture + JPEG encode only), `audio/` (`capture.py` mic+VAD, `player.py` WAV playback), `hardware/servos.py` (head=GPIO12, arms=GPIO13/18, sequential moves).
+
+### HTTP API endpoints (`api/app.py`)
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/health` | `{status, llm, memory}` |
+| POST | `/chat` | `{message, face_id?, face_name?, emotion?}` → full 6-node graph (diagnostics/fallback path) |
+| GET | `/personalities` · POST `/personality?name=` | list / switch personality |
+| GET | `/memory/stats` | `{total_memories, known_faces, by_type}` |
+| GET | `/sessions` | per-person stats (`SessionTracker`) |
+| GET | `/dashboard` · `/dashboard/stream` | dashboard page + SSE feed (`DashboardHub`) |
+| WS | `/ws?toy_id=<id>` | the real-time toy transport (see protocol above) |
+
+CLI (`python -m philosopher.main`): `--server --host --port --personality --language --llm-url --llm-model --debug`.
+
+### Personality YAML (`config/personalities/<lang>/<name>.yaml`)
+Top-level keys: `name, role, language, description, system_prompt, traits{empathy,curiosity,humor,formality,energy,optimism}, speech_patterns{greetings,farewells,…}, emotion_responses{happy,sad,angry,surprised,neutral,fear}, style{max_response_length,use_asterisks_for_actions,ask_questions,use_metaphors}, fallbacks{error,not_understood,…}, face_registration{…}`. `fallbacks` is what makes fallback text localized (`personality.fallback(key)`); `face_registration` tunes the name-ask. **es** personalities: `filosofo, curioso, poetico, amigo, sabio`.
+
+### Memory architecture
+- **Short-term** (`memory/short_term.py`): in-RAM `deque` per `face_id` (unknown → `_anon`), lost on restart.
+- **Long-term** (`memory/long_term.py`): SQLite + WAL. Tables `memories` and `known_faces(face_id, name, first_seen, last_seen, encounters, encoding)`. Recall = keyword overlap (words >3 chars) + recency decay (~1-week half-life), `threshold` 0.6. No embeddings (RAM budget).
+
+### Example `.env`
+```bash
+# Server (PHILOSOPHER_*): LLM_PROVIDER, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL,
+#   PERSONALITY, LANGUAGE, MEMORY_DB_PATH, API_HOST=0.0.0.0, API_PORT=8080,
+#   STT_MODEL/DEVICE/COMPUTE_TYPE, CAMERA_FPS/QUALITY/DETECT_WIDTH/PRESENCE_GATE/MERGE_BAND, TTS_VOICE
+# Toy: PHILOSOPHER_SERVER_URL=ws://<server-ip>:8080  (base only; client appends /ws?toy_id=)
+#      PHILOSOPHER_TOY_ID=banana_01, PHILOSOPHER_CAMERA_FPS=0.5, PHILOSOPHER_MOCK=false
+```
+
+### Data-flow trace (WebSocket, the real path)
+```
+Toy: mic VAD → speech_started, PCM (0x01), speech_ended ; camera → JPEG (0x02) @ FPS
+Server: vision decodes JPEG → face id + emotion → {look}/{servo} back immediately
+        stt: on speech_ended, faster-whisper transcribes accumulated PCM
+        _stream_response: nodes 1–3 build context → llm.chat_stream() → buffer sentences
+          per sentence: node_format → {type:text}+{servo} + Piper WAV (0x03) → toy plays it
+          node_store once at the end (persist + background name extraction)
+```
+
+## Doc map — what's authoritative
 
 1. **Source code** (`philosopher/`, `banana_client/`) — ground truth.
 2. **`MIGRATION_GUIDE.md`** — authoritative v2 design (explicitly overrides `REWRITE_PROMPT.md`).
-3. **This `CLAUDE.md`** — up-to-date quick reference.
-4. **`AGENTS.md` / `CONTEXT.md` / `README.md`** — useful for the unchanged parts (memory, personality, event bus, LangGraph), but verify transport/where-AI-runs against the code.
+3. **This `CLAUDE.md`** — the canonical, up-to-date guide (quick reference + the Reference section above). The root `AGENTS.md` and each subproject `README.md`/`AGENTS.md` are **stubs that point here**.
+4. **`HARDWARE_RUNBOOK.md`** — v2 bring-up on real devices (RPi4 + Banana Pi): dlib/piper/model setup, `check_runtime_deps.py`, and an end-to-end smoke checklist with per-step triage.
+5. **`CONTEXT.md`** — v1-era background; verify transport/where-AI-runs against the code.

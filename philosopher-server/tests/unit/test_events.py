@@ -48,3 +48,22 @@ class TestEventBus:
         await event_bus.emit(Event(type=EventType.BUTTON_PRESSED, data={}))
         await asyncio.sleep(0.1)
         assert len(received) == 1
+
+    @pytest.mark.asyncio
+    async def test_handler_exception_is_logged_not_swallowed(self, event_bus, caplog):
+        # A raising handler must surface in the log and must not stop other handlers.
+        good = []
+        async def boom(ev):
+            raise ValueError("handler kaboom")
+        async def ok(ev):
+            good.append(ev)
+        event_bus.subscribe(EventType.USER_TEXT, boom)
+        event_bus.subscribe(EventType.USER_TEXT, ok)
+
+        with caplog.at_level("ERROR", logger="philosopher.events.bus"):
+            await event_bus.emit(Event(type=EventType.USER_TEXT, data={}))
+            await asyncio.sleep(0.1)
+
+        assert good, "the second handler should still run"
+        assert any("kaboom" in r.getMessage() or "kaboom" in str(r.exc_info)
+                   for r in caplog.records), "the handler error should be logged"

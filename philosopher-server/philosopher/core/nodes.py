@@ -2,18 +2,33 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from philosopher.core.state import AgentState
 from philosopher.llm.client import LLMMessage
 
+logger = logging.getLogger(__name__)
+
+
+def _log_task_error(task: asyncio.Task) -> None:
+    """Surface a fire-and-forget task's exception instead of swallowing it."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("background task failed: %r", exc, exc_info=exc)
+
 
 class NodeCtx:
     """Shared context passed to all graph nodes."""
-    def __init__(self, llm, memory, personality, events=None):
+    def __init__(self, llm, memory, personality, events=None, vision=None):
         self.llm = llm
         self.memory = memory
         self.personality = personality
         self.events = events
+        # Set after wiring (vision is built after the orchestrator). Lets the
+        # name-registration task confirm identity biometrically before merging.
+        self.vision = vision
 
 
 async def node_perception(state: AgentState, ctx: NodeCtx) -> AgentState:
@@ -99,10 +114,23 @@ async def background_extract_name(state: AgentState, ctx: NodeCtx):
         return  # Already has a name
 
     words = state.user_message.strip().split()
-    if 1 <= len(words) <= 3:
-        name = words[-1].strip(".,!?").title()
-        if len(name) >= 2 and name.isalpha():
-            await ctx.memory.long.update_face_name(state.face_id, name)
+    if not (1 <= len(words) <= 3):
+        return
+    name = words[-1].strip(".,!?").title()
+    if len(name) < 2 or not name.isalpha():
+        return
+
+    # Name is just a label, not a unique key — two people can be "Pedro". If a
+    # face with this name already exists, only merge into it when the biometrics
+    # agree (same person whose face wasn't recognized); otherwise keep them apart.
+    existing = await ctx.memory.long.find_face_by_name(name, exclude_id=state.face_id)
+    vision = getattr(ctx, "vision", None)
+    enc = (vision.maybe_merge(state.face_id, existing["face_id"], name)
+           if existing and vision else None)
+    if existing and enc is not None:
+        await ctx.memory.long.merge_face(state.face_id, existing["face_id"], encoding=enc)
+    else:
+        await ctx.memory.long.update_face_name(state.face_id, name)
 
 
 async def node_store(state: AgentState, ctx: NodeCtx) -> AgentState:
@@ -112,7 +140,9 @@ async def node_store(state: AgentState, ctx: NodeCtx) -> AgentState:
                              state.face_id, state.face_name)
     state.turn += 1
 
-    # Background face name extraction (zero latency)
-    asyncio.create_task(background_extract_name(state, ctx))
+    # Background face name extraction (zero latency). Fire-and-forget, but log
+    # any failure instead of letting it vanish as an unretrieved task exception.
+    task = asyncio.create_task(background_extract_name(state, ctx))
+    task.add_done_callback(_log_task_error)
 
     return state
