@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from dotenv import load_dotenv
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -113,6 +114,13 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    # Load .env into the process environment FIRST. The nested settings models
+    # (LLMSettings, MemorySettings, …) are built via default_factory and read
+    # os.environ, NOT the .env file — only the top-level Settings has env_file.
+    # Without this, PHILOSOPHER_* in .env are silently ignored on a plain
+    # `python -m` run and the app falls back to defaults (e.g. localhost LLM).
+    # override=False so real env vars (e.g. systemd EnvironmentFile) still win.
+    load_dotenv(override=False)
     s = Settings()
     s.ensure_dirs()
     return s
