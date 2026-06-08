@@ -33,7 +33,7 @@ dependencies = [
     # fresh install works on modern toolchains. See HARDWARE_RUNBOOK (Trixie note).
     "face_recognition_models>=0.3.0",
     "setuptools<81",
-    "opencv-python>=4.9.0",
+    "opencv-python-headless>=4.9.0",  # headless: server is display-less, avoids the libGL dep
     "Pillow>=10.0.0",
 ]
 
