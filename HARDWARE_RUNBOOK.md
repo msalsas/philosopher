@@ -94,11 +94,22 @@ The systemd unit's `ExecStart` then points at the conda env, e.g.
 
 ### 3. piper TTS binary (a system binary, NOT a pip package)
 Without it, TTS returns empty bytes → the toy gets text but no speech.
+The tarball ships the binary *with bundled libs alongside it*, so move the whole
+folder and symlink the binary — don't copy just the executable, or it won't find
+its libs:
 ```bash
-# Grab the arm64 release from github.com/rhasspy/piper/releases, then:
-sudo install -m755 piper/piper /usr/local/bin/piper
+cd /tmp
+# grab the aarch64 asset from github.com/rhasspy/piper/releases (piper_linux_aarch64.tar.gz)
+tar -xzf piper_linux_aarch64.tar.gz        # extracts ./piper/ (binary + libs + espeak-ng-data)
+sudo mv piper /opt/piper
+sudo ln -sf /opt/piper/piper /usr/local/bin/piper
 piper --help     # must succeed
 ```
+The Piper *voice* model is separate (`data/piper_models/`, fetched by
+`download_models.py`). `/health` shows `tts: degraded, voice_model: false` if the
+binary is found but the voice `.onnx` isn't where the server's cwd resolves
+`./data/` — pin `PHILOSOPHER_TTS_MODEL_PATH` to an absolute path, or always launch
+from `philosopher-server/` (the systemd unit's `WorkingDirectory` does this).
 
 ### 4. The server itself + models
 ```bash
@@ -131,11 +142,20 @@ gate, not the green unit suite.
 ```bash
 python -m philosopher.main --server       # WebSocket + HTTP on :8080
 # Sanity from another shell:
-curl -s localhost:8080/health
+curl -s localhost:8080/health             # each engine ok/mock/degraded/unavailable; status=degraded if any isn't ok
+python scripts/fake_toy.py                # drive the WS end-to-end with no hardware
 # open http://<pi-ip>:8080/dashboard in a browser
 ```
+`fake_toy.py` is a hardware-free toy: it sends a frame + audio + speech_ended and
+prints the server's text/servo/WAV frames. With dummy audio + real STT you'll get
+the `not_understood` fallback (correct — it's not speech); pass `--wav speech.wav
+--jpeg face.jpg` for a true transcription→LLM→TTS turn.
+
 Tip: `MOCK_MODE=true python -m philosopher.main --server` runs with stubbed
-STT/vision/TTS — use it to prove the WebSocket plumbing before models are ready.
+STT/vision/TTS — use it (with `fake_toy.py`) to prove the WebSocket plumbing
+before models/LLM are ready. Note: `MOCK_MODE` does **not** mock the LLM — the
+server always proxies the real external endpoint, so `llm: error` until
+`PHILOSOPHER_LLM_BASE_URL` points at a reachable OpenAI-compatible server.
 
 ---
 

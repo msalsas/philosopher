@@ -101,7 +101,7 @@ dependencies = [
     "faster-whisper>=1.0.0",      # NEW: server-side STT
     "deepface>=0.0.89",           # NEW: server-side vision
     "face-recognition>=1.3.0",    # NEW: server-side face matching
-    "opencv-python>=4.9.0",       # NEW: server-side JPEG decode
+    "opencv-python-headless>=4.9.0",  # NEW: server-side JPEG decode (headless: no libGL/display dep)
     "Pillow>=10.0.0",             # NEW: JPEG decode from toy
     # ... keep everything else (langgraph, openai, httpx, aiosqlite, etc.)
 ]

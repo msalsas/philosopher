@@ -47,6 +47,7 @@ python scripts/validate_hardware.py --faces DIR --emotions DIR --audio DIR --llm
 python -m philosopher.main --server     # WebSocket + HTTP (default :8080) — production mode
 python -m philosopher.main              # interactive terminal chat (text only, no STT/TTS/vision)
 MOCK_MODE=true python -m philosopher.main --server   # stub STT/vision/TTS, no models needed
+python scripts/fake_toy.py              # drive the WebSocket end-to-end with no hardware (sends frame+audio, prints text/servo/WAV); --wav/--jpeg for real input
 pytest tests/ -v                        # full suite
 pytest tests/unit/test_stt.py -v        # single file
 pytest tests/unit/test_stt.py::test_name -v          # single test
@@ -99,13 +100,15 @@ The server uses three ML models; all **auto-download on first use** and can be *
 
 Pre-download all three: `python scripts/download_models.py` (idempotent; each step independent).
 
-ARM64 install notes:
-- **`face_recognition`/dlib has no PyPI ARM64 wheel.** On Raspberry Pi OS install from piwheels first — `pip install dlib --index-url https://www.piwheels.org/simple` — before falling back to a 2–4 h source build. MediaPipe face detection is a no-dlib fallback if you only need presence, not identity.
-- **`piper` is a system binary**, not a pip package — install it separately on the Pi.
+ARM64 install notes (full bring-up sequence in `HARDWARE_RUNBOOK.md`):
+- **`face_recognition`/dlib has no PyPI ARM64 wheel.** On **Raspberry Pi OS Bookworm (Python 3.11)** install from piwheels first — `pip install dlib --index-url https://www.piwheels.org/simple` — before a 2–4 h source build. On **Debian Trixie / Python 3.13** piwheels has no dlib wheel; use **Miniforge + `conda install -c conda-forge dlib`** on a 3.11 env (prebuilt aarch64). The stale `face_recognition` wrapper also needs `pkg_resources` (gone in setuptools≥81) and its model blobs — both now pinned in `pyproject.toml`. MediaPipe is a no-dlib fallback if you only need presence, not identity.
+- **Use `opencv-python-headless`, not `opencv-python`.** Both devices are display-less; the GUI build links `libGL.so.1` (absent on a headless Pi) and fails `import cv2`. Both `pyproject.toml`s pin headless.
+- **`piper` is a system binary**, not a pip package — install it separately on the Pi (the tarball ships bundled libs, so move the whole folder + symlink the binary; see runbook).
 
 ## Gotchas (learned the hard way)
 
 - **Everything degrades to a safe default; it does not crash the socket.** Emotion → `"neutral"` if onnxruntime/model missing; TTS → empty bytes (text, no audio) if the `piper` binary/model missing; STT → **drops the utterance** (empty text + `unavailable:true`, so the toy stays silent) if `faster-whisper` failed to load — it does *not* fabricate text. The `"Hello world"` stub is **only** for `mock=True` (dev). A failed STT load is logged loudly (`logger.error`) once at startup, and every engine's readiness is surfaced on **`GET /health`** (`stt`/`vision`/`tts` each report `ok`/`mock`/`degraded`/`unavailable`; any non-ok engine rolls the top-level `status` up to `degraded`). So "it runs but does nothing" usually means a missing model/binary, not a logic bug — check `/health` and the startup log first.
+- **`.env` only works because `get_settings()` calls `load_dotenv()` first.** The nested settings models (`LLMSettings`, etc.) are built via `default_factory` and read **`os.environ`, not the `.env` file** — only the top-level `Settings` has `env_file`. Without the `load_dotenv()` in `get_settings()`, `PHILOSOPHER_*` in `.env` are silently ignored on a plain `python -m` run and the app falls back to defaults (e.g. localhost LLM → "Connection error"). Don't remove that call. (systemd's `EnvironmentFile` injects the vars directly, so the deployed path doesn't depend on it.)
 - **`faster-whisper` returns a one-shot generator.** Materialize `segments` to a list before using it twice (`stt/engine.py`); reading it for `text` and again for `confidence` silently yields nothing the second time (and `min([])` raises).
 - **Tests must isolate the SQLite DB.** The default DB (`./data/philosopher_memory.db`) is WAL-mode and shared; tests hitting it concurrently block on the lock and *look* like a hang. Use a `tmp_path` DB via `monkeypatch.setenv("PHILOSOPHER_MEMORY_DB_PATH", …)` + `get_settings.cache_clear()` (see `tests/integration/test_stream.py`).
 - **The WS sentence splitter is `buffer.endswith(('.','!','?','\n'))`.** A token whose terminator is followed by whitespace (e.g. `". "`) won't split until the next terminator, so sentences can batch. Fine for real LLM streams; matters when writing fake token streams in tests.
