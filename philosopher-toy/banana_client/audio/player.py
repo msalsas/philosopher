@@ -9,9 +9,10 @@ import wave
 class AudioPlayer:
     """Plays WAV audio received from server."""
 
-    def __init__(self, rate: int = 22050, channels: int = 1):
+    def __init__(self, rate: int = 22050, channels: int = 1, mock: bool = False):
         self.rate = rate
         self.channels = channels
+        self.mock = mock
         self._pa = None
         self._stream = None
         # Current open-stream format, so we can reopen when a WAV differs.
@@ -22,10 +23,20 @@ class AudioPlayer:
         self._playing = False
 
     def init(self):
+        if self.mock:
+            print("[Player] Mock mode: audio playback disabled")
+            return
         import pyaudio
         self._pa = pyaudio.PyAudio()
-        # Open a default stream; playback reopens it to match each WAV's format.
-        self._open(self.rate, self.channels, 2)
+        try:
+            # Open a default stream; playback reopens it to match each WAV's format.
+            self._open(self.rate, self.channels, 2)
+        except OSError as exc:
+            # No output device: degrade to a silent speaker instead of crashing.
+            print(f"[WARNING] Audio output unavailable ({exc}), playback disabled")
+            self._pa.terminate()
+            self._pa = None
+            self.mock = True
 
     def _open(self, rate: int, channels: int, width: int) -> None:
         fmt = self._pa.get_format_from_width(width)
@@ -51,6 +62,9 @@ class AudioPlayer:
 
     async def play_wav(self, wav_bytes: bytes):
         """Parse WAV and queue for playback."""
+        if self._pa is None:  # mock / degraded: drop audio silently
+            print(f"[Player] (mock) dropping {len(wav_bytes)} bytes of audio")
+            return
         await self._play_queue.put(wav_bytes)
         if not self._playing:
             self._playing = True

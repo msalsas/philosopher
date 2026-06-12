@@ -10,7 +10,8 @@ import numpy as np
 class MicrophoneCapture:
     """Captures audio from USB microphone with VAD."""
 
-    def __init__(self, rate=16000, chunk=1024, threshold=300, silence=2.0, gate=None):
+    def __init__(self, rate=16000, chunk=1024, threshold=300, silence=2.0, gate=None,
+                 mock=False):
         self.rate = rate
         self.chunk = chunk
         self.threshold = threshold
@@ -18,11 +19,15 @@ class MicrophoneCapture:
         # gate() -> True means "suppress the mic" (e.g. while the toy is speaking),
         # so the toy never transcribes its own TTS (no echo cancellation needed).
         self.gate = gate
+        self.mock = mock
         self._pa = None
         self._stream = None
         self.input_device_index = None
 
     async def init(self):
+        if self.mock:
+            print("[Mic] Mock mode: audio capture disabled")
+            return
         import pyaudio
         self._pa = pyaudio.PyAudio()
         for i in range(self._pa.get_device_count()):
@@ -33,14 +38,22 @@ class MicrophoneCapture:
                 break
         if self.input_device_index is None:
             print("[WARNING] USB microphone not found, using default device")
-        self._stream = self._pa.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=self.rate,
-            input=True,
-            input_device_index=self.input_device_index,
-            frames_per_buffer=self.chunk,
-        )
+        try:
+            self._stream = self._pa.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=self.rate,
+                input=True,
+                input_device_index=self.input_device_index,
+                frames_per_buffer=self.chunk,
+            )
+        except OSError as exc:
+            # No usable input device: degrade to a silent mic instead of crashing
+            # the toy — camera and servos still work without audio.
+            print(f"[WARNING] Audio input unavailable ({exc}), mic disabled")
+            self._pa.terminate()
+            self._pa = None
+            self.mock = True
 
     def _energy(self, pcm_bytes: bytes) -> float:
         samples = np.frombuffer(pcm_bytes, dtype=np.int16)
@@ -48,6 +61,9 @@ class MicrophoneCapture:
 
     async def capture_stream(self):
         """Yield audio events when speech is detected and ended."""
+        if self._stream is None:  # mock / degraded: a silent mic, never yields
+            while True:
+                await asyncio.sleep(3600)
         buffer = bytearray()
         is_speaking = False
         silence_frames = 0

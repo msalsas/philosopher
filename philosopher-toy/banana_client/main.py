@@ -4,6 +4,11 @@ from __future__ import annotations
 import asyncio
 import os
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # optional: config still works via real env vars
+    load_dotenv = None
+
 from banana_client.audio.capture import MicrophoneCapture
 from banana_client.audio.player import AudioPlayer
 from banana_client.hardware.servos import ServoController
@@ -27,13 +32,24 @@ class Toy:
     async def init(self):
         print("[Toy] Initializing...")
         self.ws = ToyWebSocketClient(self.server_url, self.toy_id)
-        await self.ws.connect()
+        # The toy often boots before the server (or before the network) is up:
+        # a failed first connect must retry with backoff, not crash the process.
+        try:
+            await self.ws.connect()
+        except Exception as exc:
+            print(f"[Toy] Server unreachable at {self.server_url} ({exc}), retrying...")
+            if not await self.ws.reconnect():
+                raise RuntimeError(
+                    f"Could not reach server at {self.server_url} after "
+                    f"{self.ws.max_reconnect} attempts"
+                ) from exc
 
-        self.player = AudioPlayer()
+        self.player = AudioPlayer(mock=self.mock)
         self.player.init()
 
         # Suppress the mic while the toy is speaking (anti-echo / half-duplex).
-        self.mic = MicrophoneCapture(gate=lambda: bool(self.player and self.player.is_playing))
+        self.mic = MicrophoneCapture(gate=lambda: bool(self.player and self.player.is_playing),
+                                     mock=self.mock)
         await self.mic.init()
 
         self.camera = Camera()
@@ -103,8 +119,8 @@ class Toy:
 
 async def _amain():
     toy = Toy()
-    await toy.init()
     try:
+        await toy.init()  # inside try so a failed init still closes the session
         await toy.run()
     except KeyboardInterrupt:
         print("\n[Toy] Goodbye...")
@@ -114,6 +130,10 @@ async def _amain():
 
 def main():
     """Sync entry point for the `philosopher-toy` console script."""
+    # Config is read from os.environ (see Toy.__init__); load a local .env
+    # first so it works on a plain run too. Real env vars win (override=False).
+    if load_dotenv is not None:
+        load_dotenv(override=False)
     asyncio.run(_amain())
 
 
