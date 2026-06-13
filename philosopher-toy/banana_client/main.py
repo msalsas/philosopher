@@ -122,7 +122,9 @@ async def _amain():
     try:
         await toy.init()  # inside try so a failed init still closes the session
         await toy.run()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # Ctrl+C reaches asyncio.run as a task cancellation, surfacing here as
+        # CancelledError (not KeyboardInterrupt) — catch both so shutdown is clean.
         print("\n[Toy] Goodbye...")
     finally:
         await toy.stop()
@@ -134,7 +136,12 @@ def main():
     # first so it works on a plain run too. Real env vars win (override=False).
     if load_dotenv is not None:
         load_dotenv(override=False)
-    asyncio.run(_amain())
+    try:
+        asyncio.run(_amain())
+    except KeyboardInterrupt:
+        # asyncio.run re-raises KeyboardInterrupt after cancelling the main task;
+        # swallow it so a Ctrl+C exits 0 with no traceback.
+        pass
 
 
 if __name__ == "__main__":
