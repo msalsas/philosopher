@@ -26,8 +26,13 @@ git clone <repo-url> ~/philosopher
 # RPi4 (brain): install the server only
 cd ~/philosopher/philosopher-server && python -m venv .venv && .venv/bin/pip install -e .
 
-# Banana Pi (body): install the toy only
-cd ~/philosopher/philosopher-toy   && python -m venv .venv && .venv/bin/pip install -e .
+# Banana Pi (body): install the toy only — but NOT with a plain `pip install -e .`!
+# armhf has no PyPI wheels for numpy/opencv → pip would compile them from source
+# (hours, OOM on 512 MB). Install Debian's prebuilt packages and a venv that sees
+# them instead. Full sequence in §B.2:
+#   sudo apt install -y python3-numpy python3-opencv python3-aiohttp alsa-utils
+#   cd ~/philosopher/philosopher-toy && python3 -m venv --system-site-packages .venv
+#   .venv/bin/pip install -e . --no-deps && .venv/bin/pip install python-dotenv
 ```
 
 Updates are `git pull` on each device (re-run `pip install -e .` only if deps
@@ -184,17 +189,122 @@ Everything else below (toy setup, smoke checklist, perf knobs) applies unchanged
 
 ## B. Toy — Banana Pi BPi-M2 Zero (the body, 512 MB)
 
-Zero ML here — only capture/playback/servos. Keep its footprint tiny.
+Zero ML here — only capture/playback/servos. Keep its footprint tiny. The M2 Zero
+is a quirky 15 € board (Allwinner H3, **armhf/32-bit**, 512 MB, 2.4 GHz-only WiFi,
+**one micro-USB OTG data port**, no Ethernet). The bring-up below is the hard-won
+real sequence; skipping a step here cost us a full day.
+
+> **STATUS (verified vs not):** B.0–B.2 were done and **verified** — the board boots,
+> joins WiFi, the toy installs and reaches `[Toy] Ready!` and connects to the server
+> over WebSocket (in mock and with a live mic). B.3+ (audio I/O) is **NOT yet verified
+> on hardware** — see the caveats there. The board ended this session unstable / not
+> booting (suspected SD corruption from forced power-cuts during hangs, B.5).
+
+### B.0 OS + first access (headless)
+- **OS:** Armbian "Debian 13 Trixie Minimal / CLI" for *Banana Pi M2 Zero*. Flash with
+  rpi-imager → "Use custom" (the Armbian AppImager needs GLIBC ≥ 2.39, often too new).
+- **Use a genuine SD card.** A fake/bad AliExpress card corrupts ext4 and gives endless
+  `fsck`/hang loops — we burned a day on one. If boot drops to `UNEXPECTED INCONSISTENCY`,
+  suspect the card before the software.
+- **There is no usable network-less preseed on Trixie:** Armbian **removed
+  `armbian_first_run.txt`** support, and the wizard runs on first login. So get a console:
+  - **USB gadget serial (the rescue path):** the OTG port boots in *gadget* mode →
+    plug a normal micro-USB **data** cable from the OTG port to a laptop → it enumerates
+    as `Gadget Serial v2.4` → `sudo screen /dev/ttyACM0 115200`, Enter → `login:`.
+    Default creds **`root` / `1234`** (wizard forces a change + user creation).
+    *(A USB keyboard on the OTG port does NOT work in gadget mode — that confused us for
+    an hour; the keyboard is fine, the port is just a device, not a host.)*
+- **WiFi (networkd + netplan, NOT NetworkManager):** create
+  `/etc/netplan/30-wifi.yaml` (chmod 600), 2.4 GHz SSID only:
+  ```yaml
+  network:
+    version: 2
+    renderer: networkd
+    wifis:
+      wlan0:
+        dhcp4: true
+        access-points:
+          "YOUR_SSID":
+            password: "YOUR_PASS"
+  ```
+  `netplan apply` (or reboot). Then SSH in and disable root login once your user works.
+
+### B.1 USB OTG: gadget → host (needed for USB mic/speaker/keyboard)
+The single OTG port can be **gadget** (serial console, default) **or host** (USB
+peripherals) — not both. Armbian pins it to gadget by loading `g_serial` at boot.
+To use USB audio you must switch to host:
 ```bash
-cd philosopher-toy
-pip install -e ".[dev]"
-# Point it at the server (base URL only — the client appends /ws?toy_id=… itself):
-export PHILOSOPHER_SERVER_URL=ws://<pi-ip>:8080
-export PHILOSOPHER_TOY_ID=banana_01        # optional; defaults to banana_01
-python -m banana_client.main
-# No hardware wired yet? Prove the client loop first:
-PHILOSOPHER_MOCK=true python -m banana_client.main
+sudo systemctl disable --now serial-getty@ttyGS0.service
+sudo sed -i 's/^g_serial/#g_serial/' /etc/modules /etc/modules-load.d/modules.conf
+printf 'blacklist g_serial\nblacklist libcomposite\n' | sudo tee /etc/modprobe.d/disable-gadget.conf
+sudo reboot
 ```
+After reboot `ls /sys/class/udc` still lists `musb-hdrc…` but plugging an OTG adapter
+(micro-male → USB-A female, which grounds the ID pin) now enumerates USB devices
+(`lsusb`). **You lose the USB serial console** — but a USB keyboard on HDMI now works as
+the local rescue, and you have SSH. With >1 USB device (mic + speaker) you need a **hub**.
+
+### B.2 Install the toy (armhf — do NOT let pip compile numpy/opencv)
+PyPI has no armv7 wheels for numpy/opencv → pip would build them from source (hours,
+likely OOM on 512 MB). Use Debian's prebuilt packages and a venv that sees them:
+```bash
+sudo apt install -y git python3-venv python3-pip alsa-utils
+sudo apt install -y python3-numpy python3-opencv python3-aiohttp   # prebuilt, system-wide
+git clone https://github.com/msalsas/philosopher.git
+cd philosopher/philosopher-toy
+python3 -m venv --system-site-packages .venv     # venv inherits the apt packages
+source .venv/bin/activate
+pip install -e . --no-deps                        # don't re-pull heavy deps from PyPI
+pip install python-dotenv pytest pytest-asyncio pytest-mock
+# Point it at the server (base URL only — client appends /ws?toy_id=… itself):
+echo "PHILOSOPHER_SERVER_URL=ws://<pi-ip>:8080" > .env   # .env is loaded (python-dotenv)
+echo "PHILOSOPHER_TOY_ID=banana_01" >> .env
+PHILOSOPHER_MOCK=true python -m banana_client.main        # prove the client loop first
+```
+
+### B.3 Audio — ⚠️ UNVERIFIED on hardware
+What we **observed (verified):** with the original **PyAudio** path the toy *did* reach
+`[Toy] Ready!` and the live mic worked, BUT PyAudio's device enumeration takes **minutes**
+and intermittently **pegs the CPU until the board hangs**. The USB mic is a **PCM2902**
+that only supports **48 kHz** (rejects 16 kHz raw — let ALSA `plug` resample); cards seen:
+mic = card 0, USB speaker = card 1, HDMI = card 2.
+
+What we **changed but NEVER got to confirm working (commit `ffb75ec`):** audio I/O was
+rewritten to use the **`arecord`/`aplay` binaries** instead of PyAudio, to dodge the slow
+enumeration. **The first run after pulling it hung before we could verify a conversation —
+so this path is unproven and is itself a suspect for the instability.** Validate it (or
+revert it) once the board is stable again. The relevant env knobs (added alongside):
+- `PHILOSOPHER_MIC_ALSA_DEVICE` / `PHILOSOPHER_SPEAKER_ALSA_DEVICE` (default `default` →
+  follows `~/.asoundrc`: `pcm.!default { type asym playback.pcm "plughw:1,0" capture.pcm "plughw:0,0" }`).
+- `PHILOSOPHER_MIC_DEBUG=1` prints `energy=… threshold=…` to calibrate the VAD.
+- `PHILOSOPHER_VAD_THRESHOLD` — set **above** the idle noise floor, **below** speech. Cheap
+  mics sit ~500 idle / ~2500 on speech → ~1000 works. **Critical:** turn the codec's
+  **Auto Gain Control OFF** (`alsamixer -c 0`, then `sudo alsactl store`) — AGC lifts the
+  silence floor to speech level, so the VAD never sees silence and never emits `speech_ended`.
+- `PHILOSOPHER_MIC_GAIN` amplifies a quiet capture (scales noise too — it's the threshold
+  that separates speech, not the gain).
+
+### B.4 Not-yet-wired / known gaps on this board
+- **Camera is CSI, not USB** → `cv2.VideoCapture(0, V4L2)` fails → camera mock for now
+  (needs the CSI sensor driver / overlay; revisit when the camera is chosen).
+- **Servos need `OPi.GPIO`** (Allwinner H3), not RPi.GPIO. Not installed → servo mock.
+  `hardware/servos.py` still uses RPi-style pin numbers (GPIO12/13/18) — **must be remapped
+  to H3** before wiring real servos.
+- **Speakers are moving to GPIO/I2S** (e.g. MAX98357A DAC → a new ALSA card via DT overlay;
+  `AudioPlayer` just retargets the device). I2S also stops drawing from the USB power rail.
+
+### B.5 Stability — hard hangs (UNRESOLVED)
+The board hung repeatedly under sustained audio load — with PyAudio *and* on the first
+(unverified) arecord/aplay run, and once it felt sluggish straight after SSH login.
+**Root cause not confirmed.** Leading suspects, untested: an **unpowered USB hub + mic +
+speaker browning out the 5 V rail** under simultaneous record/playback; the **sunxi musb
+OTG host being weak with isochronous USB-audio transfers**; and possibly the **arecord/aplay
+change itself** (never validated). To isolate next time: boot **bare (no USB)** and confirm
+it stays stable; test `arecord … /dev/null` alone for 60 s; try a **powered USB hub** and a
+solid **5 V/2–3 A** supply. **Never cut power to un-hang it** — yanking power mid-write
+corrupts the SD (same failure mode as a fake card; this is the likely reason the board
+stopped booting at the end of the session). Prefer `sudo reboot`; keep the HDMI+keyboard
+console (works in host mode) as recovery.
 
 ---
 
