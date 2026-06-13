@@ -48,63 +48,34 @@ class TestMicrophoneCapture:
 
 
 class TestAudioPlayer:
-    def test_init(self, monkeypatch):
-        # Inject a fake `pyaudio` so init() opens a stream without real hardware.
-        import sys
-        import types
-
-        class FakeStream:
-            def stop_stream(self):
-                pass
-
-            def close(self):
-                pass
-
-        class FakePA:
-            def get_format_from_width(self, w):
-                return w
-
-            def open(self, **kw):
-                return FakeStream()
-
-            def terminate(self):
-                pass
-
-        fake = types.ModuleType("pyaudio")
-        fake.PyAudio = FakePA
-        monkeypatch.setitem(sys.modules, "pyaudio", fake)
-
+    def test_init_ready_when_aplay_present(self, monkeypatch):
+        import banana_client.audio.player as player_mod
+        monkeypatch.setattr(player_mod.shutil, "which", lambda _: "/usr/bin/aplay")
         player = AudioPlayer()
         player.init()
-        assert player._stream is not None
-        player.close()
+        assert player._ready and not player.mock
 
-    def test_reopens_stream_for_wav_rate(self):
-        # No pyaudio needed: inject a fake PyAudio and verify the player reopens
-        # the output stream at the WAV's real rate (16 kHz) instead of the 22050
-        # default — otherwise a 16 kHz Piper voice plays ~37% too fast.
-        class FakeStream:
-            def stop_stream(self):
-                pass
-
-            def close(self):
-                pass
-
-        class FakePA:
-            def __init__(self):
-                self.opened = []
-
-            def get_format_from_width(self, w):
-                return w
-
-            def open(self, **kw):
-                self.opened.append(kw)
-                return FakeStream()
-
+    def test_init_degrades_without_aplay(self, monkeypatch):
+        import banana_client.audio.player as player_mod
+        monkeypatch.setattr(player_mod.shutil, "which", lambda _: None)
         player = AudioPlayer()
-        player._pa = FakePA()
-        player._open(22050, 1, 2)            # default
-        player._ensure_stream(16000, 1, 2)   # 16 kHz WAV -> must reopen
-        assert player._pa.opened[-1]["rate"] == 16000
-        player._ensure_stream(16000, 1, 2)   # same format -> no reopen
-        assert len(player._pa.opened) == 2
+        player.init()
+        assert player.mock and not player._ready
+
+    @pytest.mark.asyncio
+    async def test_play_wav_dropped_when_not_ready(self, capsys):
+        # mock / no aplay: play_wav must not raise and must not spawn anything.
+        player = AudioPlayer(mock=True)
+        player.init()
+        await player.play_wav(b"RIFF....")
+        assert "mock" in capsys.readouterr().out.lower()
+
+
+class TestMicrophoneDegrade:
+    @pytest.mark.asyncio
+    async def test_mic_degrades_without_arecord(self, monkeypatch):
+        import banana_client.audio.capture as cap_mod
+        monkeypatch.setattr(cap_mod.shutil, "which", lambda _: None)
+        cap = MicrophoneCapture()
+        await cap.init()
+        assert cap.mock

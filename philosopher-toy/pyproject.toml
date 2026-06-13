@@ -13,8 +13,9 @@ dependencies = [
     "aiohttp>=3.9.0",
     "numpy>=1.26.0",
     "opencv-python-headless>=4.9.0",  # headless: Banana Pi has no display, avoids the libGL dep
-    "pyaudio>=0.2.14",
     "python-dotenv>=1.0.0",
+    # Audio I/O is done via the `arecord`/`aplay` binaries (alsa-utils), not a
+    # Python lib — PyAudio's device enumeration hangs the 512 MB Banana Pi.
 ]
 
 [project.optional-dependencies]

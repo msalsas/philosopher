@@ -1,68 +1,48 @@
-"""WAV audio player using PyAudio."""
+"""WAV audio player via `aplay` (subprocess).
+
+Like capture, playback avoids PyAudio (too heavy / fragile on the 512 MB Banana
+Pi). `aplay` reads a WAV from stdin and auto-detects its format, so a 16 kHz
+Piper clip plays at the right speed with no output-stream format juggling.
+"""
 from __future__ import annotations
 
 import asyncio
-import io
-import wave
+import os
+import shutil
 
 
 class AudioPlayer:
-    """Plays WAV audio received from server."""
+    """Plays WAV audio received from the server through aplay."""
 
     def __init__(self, rate: int = 22050, channels: int = 1, mock: bool = False):
         self.rate = rate
         self.channels = channels
         self.mock = mock
-        self._pa = None
-        self._stream = None
-        # Current open-stream format, so we can reopen when a WAV differs.
-        self._rate = None
-        self._channels = None
-        self._width = None
-        self._play_queue = asyncio.Queue()
+        # ALSA output device; 'default' follows ~/.asoundrc (playback -> USB
+        # speaker). Override with PHILOSOPHER_SPEAKER_ALSA_DEVICE.
+        self._device = os.getenv("PHILOSOPHER_SPEAKER_ALSA_DEVICE", "default")
+        self._ready = False
+        self._play_queue: asyncio.Queue = asyncio.Queue()
         self._playing = False
 
     def init(self):
         if self.mock:
             print("[Player] Mock mode: audio playback disabled")
             return
-        import pyaudio
-        self._pa = pyaudio.PyAudio()
-        try:
-            # Open a default stream; playback reopens it to match each WAV's format.
-            self._open(self.rate, self.channels, 2)
-        except OSError as exc:
-            # No output device: degrade to a silent speaker instead of crashing.
-            print(f"[WARNING] Audio output unavailable ({exc}), playback disabled")
-            self._pa.terminate()
-            self._pa = None
+        if shutil.which("aplay") is None:
+            print("[WARNING] aplay (alsa-utils) not found, playback disabled")
             self.mock = True
-
-    def _open(self, rate: int, channels: int, width: int) -> None:
-        fmt = self._pa.get_format_from_width(width)
-        self._stream = self._pa.open(
-            format=fmt, channels=channels, rate=rate,
-            output=True, frames_per_buffer=1024,
-        )
-        self._rate, self._channels, self._width = rate, channels, width
-
-    def _ensure_stream(self, rate: int, channels: int, width: int) -> None:
-        """Reopen the output stream if the WAV format differs from the current one."""
-        if (self._stream is not None and self._rate == rate
-                and self._channels == channels and self._width == width):
             return
-        if self._stream is not None:
-            self._stream.stop_stream()
-            self._stream.close()
-        self._open(rate, channels, width)
+        self._ready = True
+        print(f"[Player] Playback via aplay ({self._device})")
 
     @property
     def is_playing(self) -> bool:
         return self._playing
 
     async def play_wav(self, wav_bytes: bytes):
-        """Parse WAV and queue for playback."""
-        if self._pa is None:  # mock / degraded: drop audio silently
+        """Queue a WAV clip for playback."""
+        if not self._ready:  # mock / degraded: drop audio silently
             print(f"[Player] (mock) dropping {len(wav_bytes)} bytes of audio")
             return
         await self._play_queue.put(wav_bytes)
@@ -80,25 +60,17 @@ class AudioPlayer:
                     break
                 continue
             try:
-                with io.BytesIO(wav_bytes) as f, wave.open(f, "rb") as wav:
-                    # Match the output stream to THIS clip's real format — Piper
-                    # voices vary (e.g. x_low is 16 kHz, not the 22050 default).
-                    self._ensure_stream(
-                        wav.getframerate(), wav.getnchannels(), wav.getsampwidth(),
-                    )
-                    frames = wav.readframes(wav.getnframes())
-                    loop = asyncio.get_event_loop()
-                    for i in range(0, len(frames), 1024):
-                        await loop.run_in_executor(None, self._stream.write, frames[i:i + 1024])
-            except Exception:
-                # Not a parseable WAV: play as raw PCM if a stream is open.
-                if self._stream is not None:
-                    loop = asyncio.get_event_loop()
-                    await loop.run_in_executor(None, self._stream.write, wav_bytes)
+                # aplay reads the WAV (header + data) from stdin and picks the
+                # right rate/format itself — one process per clip.
+                proc = await asyncio.create_subprocess_exec(
+                    "aplay", "-q", "-D", self._device,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await proc.communicate(wav_bytes)
+            except Exception as exc:
+                print(f"[Player] playback error: {exc}")
 
     def close(self):
-        if self._stream:
-            self._stream.stop_stream()
-            self._stream.close()
-        if self._pa:
-            self._pa.terminate()
+        self._ready = False

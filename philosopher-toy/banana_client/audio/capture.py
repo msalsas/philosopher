@@ -1,23 +1,60 @@
-"""USB microphone capture with energy-based VAD."""
+"""USB microphone capture with energy-based VAD.
+
+Audio input goes through `arecord` (a subprocess), not PyAudio: on the 512 MB
+Banana Pi, PyAudio's device enumeration probes every ALSA/JACK PCM and takes
+minutes — and intermittently pegs the CPU until the board hangs. `arecord`
+opens the device instantly and, via the ALSA `plug` plugin, resamples to the
+target rate for us, so no software downsampling is needed either.
+"""
 from __future__ import annotations
 
 import asyncio
 import os
+import shutil
+import subprocess
 import time
 
 import numpy as np
 
 
+class _ArecordStream:
+    """Minimal blocking reader over an `arecord` subprocess (raw S16_LE mono).
+
+    Exposes a PyAudio-like ``read(num_frames)`` so the VAD loop — and the tests
+    that inject a fake stream — stay unchanged.
+    """
+
+    def __init__(self, device: str, rate: int):
+        self._proc = subprocess.Popen(
+            ["arecord", "-q", "-D", device, "-f", "S16_LE",
+             "-r", str(rate), "-c", "1", "-t", "raw"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+
+    def read(self, num_frames: int, exception_on_overflow: bool = False) -> bytes:
+        # 2 bytes/frame (S16_LE mono). read() on the buffered pipe returns this
+        # many bytes unless arecord died (then fewer / empty).
+        return self._proc.stdout.read(num_frames * 2)
+
+    def close(self) -> None:
+        self._proc.terminate()
+        try:
+            self._proc.wait(timeout=1)
+        except Exception:
+            self._proc.kill()
+
+
 class MicrophoneCapture:
-    """Captures audio from USB microphone with VAD."""
+    """Captures audio from a USB microphone (via arecord) with energy VAD."""
 
     def __init__(self, rate=16000, chunk=1024, threshold=300, silence=2.0, gate=None,
                  mock=False):
         self.rate = rate
         self.chunk = chunk
         # VAD energy threshold and a software gain multiplier are env-tunable:
-        # cheap USB mics (e.g. PCM2902) capture quietly, so we may need to
-        # amplify in software and/or lower the speech-detection threshold.
+        # cheap USB mics (e.g. PCM2902) have a high noise floor, so the threshold
+        # must sit above it; gain lifts a quiet capture (note: gain scales noise
+        # too, so it doesn't improve SNR — the threshold is what separates them).
         thr_env = os.getenv("PHILOSOPHER_VAD_THRESHOLD")
         self.threshold = float(thr_env) if thr_env else threshold
         self.gain = float(os.getenv("PHILOSOPHER_MIC_GAIN", "1.0"))
@@ -26,12 +63,8 @@ class MicrophoneCapture:
         # so the toy never transcribes its own TTS (no echo cancellation needed).
         self.gate = gate
         self.mock = mock
-        self._pa = None
         self._stream = None
-        self.input_device_index = None
-        # Rate the device is actually opened at, and the integer factor by which
-        # we downsample it to self.rate (1 = no resampling).
-        self._capture_rate = rate
+        # Kept for the test interface; arecord resamples for us so always 1.
         self._decim = 1
         # PHILOSOPHER_MIC_DEBUG=1 prints periodic energy vs threshold for tuning.
         self._debug = os.getenv("PHILOSOPHER_MIC_DEBUG", "").lower() in ("1", "true")
@@ -41,55 +74,25 @@ class MicrophoneCapture:
         if self.mock:
             print("[Mic] Mock mode: audio capture disabled")
             return
-        import pyaudio
-        self._pa = pyaudio.PyAudio()
-        # Optional explicit device index (PHILOSOPHER_MIC_DEVICE); else pick the
-        # first input device whose name looks like a USB sound card.
-        dev_env = os.getenv("PHILOSOPHER_MIC_DEVICE")
-        if dev_env not in (None, ""):
-            self.input_device_index = int(dev_env)
-        else:
-            for i in range(self._pa.get_device_count()):
-                info = self._pa.get_device_info_by_index(i)
-                name = info.get("name", "").lower()
-                if ("usb" in name or "audio" in name) and info.get("maxInputChannels", 0) > 0:
-                    self.input_device_index = i
-                    break
-            if self.input_device_index is None:
-                print("[WARNING] USB microphone not found, using default device")
-        # Many cheap USB mics only support 48 kHz, not 16 kHz. Try the target
-        # rate first; on 'invalid sample rate' fall back to 48 kHz and downsample
-        # in software (48000/16000 = 3, an exact integer factor).
-        last_exc: Exception | None = None
-        for cap_rate in (self.rate, 48000):
-            decim = max(1, round(cap_rate / self.rate))
-            try:
-                self._stream = self._pa.open(
-                    format=pyaudio.paInt16,
-                    channels=1,
-                    rate=cap_rate,
-                    input=True,
-                    input_device_index=self.input_device_index,
-                    frames_per_buffer=self.chunk * decim,
-                )
-                self._capture_rate = cap_rate
-                self._decim = decim
-                if decim > 1:
-                    print(f"[Mic] Capturing at {cap_rate} Hz, downsampling to {self.rate} Hz")
-                break
-            except OSError as exc:
-                last_exc = exc
-                continue
-        else:
+        if shutil.which("arecord") is None:
+            print("[WARNING] arecord (alsa-utils) not found, mic disabled")
+            self.mock = True
+            return
+        # ALSA device; 'default' follows ~/.asoundrc (capture -> USB mic, with
+        # plug resampling to self.rate). Override with PHILOSOPHER_MIC_ALSA_DEVICE.
+        device = os.getenv("PHILOSOPHER_MIC_ALSA_DEVICE", "default")
+        try:
+            self._stream = _ArecordStream(device, self.rate)
+            print(f"[Mic] Capturing via arecord ({device}) at {self.rate} Hz")
+        except Exception as exc:
             # No usable input device: degrade to a silent mic instead of crashing
             # the toy — camera and servos still work without audio.
-            print(f"[WARNING] Audio input unavailable ({last_exc}), mic disabled")
-            self._pa.terminate()
-            self._pa = None
+            print(f"[WARNING] Audio input unavailable ({exc}), mic disabled")
+            self._stream = None
             self.mock = True
 
     def _read_chunk(self) -> bytes:
-        """Read one chunk, downsampling to self.rate and applying gain."""
+        """Read one chunk and apply software gain."""
         raw = self._stream.read(self.chunk * self._decim, exception_on_overflow=False)
         samples = np.frombuffer(raw, dtype=np.int16)
         if self._decim > 1:
@@ -103,6 +106,8 @@ class MicrophoneCapture:
 
     def _energy(self, pcm_bytes: bytes) -> float:
         samples = np.frombuffer(pcm_bytes, dtype=np.int16)
+        if samples.size == 0:
+            return 0.0
         return float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
 
     async def capture_stream(self):
@@ -118,6 +123,9 @@ class MicrophoneCapture:
 
         while True:
             pcm_bytes = self._read_chunk()
+            if not pcm_bytes:  # arecord stopped delivering; back off, don't spin
+                await asyncio.sleep(0.1)
+                continue
             now = time.monotonic()
             # Half-duplex: while the toy is speaking (+ a short tail), read & drop
             # audio so it never hears its own voice, and reset any partial utterance.
@@ -158,8 +166,9 @@ class MicrophoneCapture:
             await asyncio.sleep(0)
 
     def close(self):
-        if self._stream:
-            self._stream.stop_stream()
-            self._stream.close()
-        if self._pa:
-            self._pa.terminate()
+        if self._stream is not None:
+            try:
+                self._stream.close()
+            except Exception:
+                pass
+            self._stream = None
