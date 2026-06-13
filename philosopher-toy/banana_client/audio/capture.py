@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 
 import numpy as np
@@ -14,7 +15,12 @@ class MicrophoneCapture:
                  mock=False):
         self.rate = rate
         self.chunk = chunk
-        self.threshold = threshold
+        # VAD energy threshold and a software gain multiplier are env-tunable:
+        # cheap USB mics (e.g. PCM2902) capture quietly, so we may need to
+        # amplify in software and/or lower the speech-detection threshold.
+        thr_env = os.getenv("PHILOSOPHER_VAD_THRESHOLD")
+        self.threshold = float(thr_env) if thr_env else threshold
+        self.gain = float(os.getenv("PHILOSOPHER_MIC_GAIN", "1.0"))
         self.silence = silence
         # gate() -> True means "suppress the mic" (e.g. while the toy is speaking),
         # so the toy never transcribes its own TTS (no echo cancellation needed).
@@ -23,6 +29,10 @@ class MicrophoneCapture:
         self._pa = None
         self._stream = None
         self.input_device_index = None
+        # Rate the device is actually opened at, and the integer factor by which
+        # we downsample it to self.rate (1 = no resampling).
+        self._capture_rate = rate
+        self._decim = 1
 
     async def init(self):
         if self.mock:
@@ -30,30 +40,63 @@ class MicrophoneCapture:
             return
         import pyaudio
         self._pa = pyaudio.PyAudio()
-        for i in range(self._pa.get_device_count()):
-            info = self._pa.get_device_info_by_index(i)
-            name = info.get("name", "").lower()
-            if ("usb" in name or "audio" in name) and info.get("maxInputChannels", 0) > 0:
-                self.input_device_index = i
+        # Optional explicit device index (PHILOSOPHER_MIC_DEVICE); else pick the
+        # first input device whose name looks like a USB sound card.
+        dev_env = os.getenv("PHILOSOPHER_MIC_DEVICE")
+        if dev_env not in (None, ""):
+            self.input_device_index = int(dev_env)
+        else:
+            for i in range(self._pa.get_device_count()):
+                info = self._pa.get_device_info_by_index(i)
+                name = info.get("name", "").lower()
+                if ("usb" in name or "audio" in name) and info.get("maxInputChannels", 0) > 0:
+                    self.input_device_index = i
+                    break
+            if self.input_device_index is None:
+                print("[WARNING] USB microphone not found, using default device")
+        # Many cheap USB mics only support 48 kHz, not 16 kHz. Try the target
+        # rate first; on 'invalid sample rate' fall back to 48 kHz and downsample
+        # in software (48000/16000 = 3, an exact integer factor).
+        last_exc: Exception | None = None
+        for cap_rate in (self.rate, 48000):
+            decim = max(1, round(cap_rate / self.rate))
+            try:
+                self._stream = self._pa.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=cap_rate,
+                    input=True,
+                    input_device_index=self.input_device_index,
+                    frames_per_buffer=self.chunk * decim,
+                )
+                self._capture_rate = cap_rate
+                self._decim = decim
+                if decim > 1:
+                    print(f"[Mic] Capturing at {cap_rate} Hz, downsampling to {self.rate} Hz")
                 break
-        if self.input_device_index is None:
-            print("[WARNING] USB microphone not found, using default device")
-        try:
-            self._stream = self._pa.open(
-                format=pyaudio.paInt16,
-                channels=1,
-                rate=self.rate,
-                input=True,
-                input_device_index=self.input_device_index,
-                frames_per_buffer=self.chunk,
-            )
-        except OSError as exc:
+            except OSError as exc:
+                last_exc = exc
+                continue
+        else:
             # No usable input device: degrade to a silent mic instead of crashing
             # the toy — camera and servos still work without audio.
-            print(f"[WARNING] Audio input unavailable ({exc}), mic disabled")
+            print(f"[WARNING] Audio input unavailable ({last_exc}), mic disabled")
             self._pa.terminate()
             self._pa = None
             self.mock = True
+
+    def _read_chunk(self) -> bytes:
+        """Read one chunk, downsampling to self.rate and applying gain."""
+        raw = self._stream.read(self.chunk * self._decim, exception_on_overflow=False)
+        samples = np.frombuffer(raw, dtype=np.int16)
+        if self._decim > 1:
+            n = (len(samples) // self._decim) * self._decim
+            samples = samples[:n].reshape(-1, self._decim).mean(axis=1)
+        else:
+            samples = samples.astype(np.float32)
+        if self.gain != 1.0:
+            samples = samples * self.gain
+        return np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
 
     def _energy(self, pcm_bytes: bytes) -> float:
         samples = np.frombuffer(pcm_bytes, dtype=np.int16)
@@ -71,7 +114,7 @@ class MicrophoneCapture:
         gated_until = 0.0
 
         while True:
-            pcm_bytes = self._stream.read(self.chunk, exception_on_overflow=False)
+            pcm_bytes = self._read_chunk()
             now = time.monotonic()
             # Half-duplex: while the toy is speaking (+ a short tail), read & drop
             # audio so it never hears its own voice, and reset any partial utterance.
