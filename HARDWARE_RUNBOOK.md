@@ -293,6 +293,49 @@ revert it) once the board is stable again. The relevant env knobs (added alongsi
 - **Speakers are moving to GPIO/I2S** (e.g. MAX98357A DAC → a new ALSA card via DT overlay;
   `AudioPlayer` just retargets the device). I2S also stops drawing from the USB power rail.
 
+### B.4.1 Speaker wiring — MAX98357A (I2S, no USB, no jack)
+Chosen audio-out path: a **MAX98357A** I2S class-D amp on the GPIO header → one
+speaker. Mono is fine for a talking toy. No USB, no analog jack, no separate PSU.
+(The M2 Zero exposes **no analog line-out** on the header — only SPDIF on pin 37 —
+and the H3 analog-codec output isn't broken out, so a PAM8403/analog amp would need
+soldering to undocumented pads; the I2S MAX98357A is the clean route.)
+
+5 wires + speaker. Connect the MAX98357A **by silkscreen label** (pin order varies):
+
+| MAX98357A | Banana Pi M2 Zero (physical pin) | H3 line |
+|-----------|----------------------------------|---------|
+| `VIN`     | Pin 2 (5V)                       | —       |
+| `GND`     | Pin 6 (GND)                      | —       |
+| `BCLK`    | Pin 27                           | PA19    |
+| `LRC`     | Pin 28                           | PA18    |
+| `DIN`     | Pin 40                           | PA20    |
+| `GAIN`    | leave floating (9 dB default)    | —       |
+| `SD`      | leave floating (enabled, L+R mono) | —     |
+| `+` / `–` | speaker (4–8 Ω)                  | —       |
+
+```
+ BANANA M2 ZERO header        MAX98357A            SPEAKER
+   pin 2  (5V) ───────────▶ VIN
+   pin 6  (GND) ──────────▶ GND
+   pin 27 (PA19) ─────────▶ BCLK
+   pin 28 (PA18) ─────────▶ LRC
+   pin 40 (PA20) ─────────▶ DIN          OUT+ ──┐
+                            GAIN (nc)            ├── 4–8 Ω speaker
+                            SD   (nc)    OUT- ──┘
+```
+
+Power from the Pi 5V pin directly — a single amp for voice is a tiny load (the earlier
+brownout hangs were a USB hub + mic + speaker, not this). All Dupont F-F; the header is
+male pins, the MAX98357A usually ships with a male header (solder it if loose).
+
+**Software (no ready overlay — build a custom one):** the kernel ships
+`sun8i-h3-analog-codec`/`sun8i-h3-spdif-out` but **no `i2s0` overlay**. `armbian-add-overlay`
+*is* present, so compile a custom overlay that enables `i2s0` + a `simple-audio-card`
+bound to a `maxim,max98357a` codec, then verify the card appears in `aplay -l` and point
+`PHILOSOPHER_SPEAKER_ALSA_DEVICE` at it. ⚠️ Re-enable the USB serial console first as a
+recovery net (a bad overlay can break boot, and HDMI kills 2.4 GHz WiFi / there's no
+serial otherwise). Overlays live in `/boot/dtb-<ver>/overlay/` + `/boot/overlay-user/`.
+
 ### B.5 Stability — hard hangs (UNRESOLVED)
 The board hung repeatedly under sustained audio load — with PyAudio *and* on the first
 (unverified) arecord/aplay run, and once it felt sluggish straight after SSH login.
