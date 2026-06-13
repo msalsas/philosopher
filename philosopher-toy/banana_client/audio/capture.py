@@ -33,6 +33,9 @@ class MicrophoneCapture:
         # we downsample it to self.rate (1 = no resampling).
         self._capture_rate = rate
         self._decim = 1
+        # PHILOSOPHER_MIC_DEBUG=1 prints periodic energy vs threshold for tuning.
+        self._debug = os.getenv("PHILOSOPHER_MIC_DEBUG", "").lower() in ("1", "true")
+        self._dbg_count = 0
 
     async def init(self):
         if self.mock:
@@ -128,6 +131,11 @@ class MicrophoneCapture:
                 continue
 
             energy = self._energy(pcm_bytes)
+            if self._debug:
+                self._dbg_count += 1
+                if self._dbg_count % 8 == 0:  # ~0.5 s at 16 kHz / 1024
+                    peak = "SPEECH" if energy > self.threshold else "silence"
+                    print(f"[Mic] energy={energy:7.0f}  threshold={self.threshold:.0f}  {peak}")
 
             if energy > self.threshold:
                 if not is_speaking:
