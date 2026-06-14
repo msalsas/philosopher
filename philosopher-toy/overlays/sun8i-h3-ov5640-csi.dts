@@ -1,0 +1,84 @@
+/*
+ * DRAFT device-tree overlay: enable the OV5640 (DVP/parallel) camera on the
+ * Banana Pi BPI-M2 Zero (Allwinner H2+/H3), mainline kernel (tested target:
+ * 6.18.x sunxi). Compile + install with `armbian-add-overlay sun8i-h3-ov5640-csi.dts`.
+ *
+ * Grounded in the LIVE device tree of the actual board
+ * (sun8i-h2-plus-bananapi-m2-zero.dtb, decompiled 2026-06-14):
+ *   - The CSI bridge node already exists: camera@1cb0000,
+ *     compatible "allwinner,sun8i-h3-csi", but status = "disabled".  (label: &csi)
+ *   - csi-pins pinmux exists: PE0=PCLK, PE2=HSYNC, PE3=VSYNC, PE4..PE11=D0..D7,
+ *     function "csi".  NOTE: PE1 (MCLK) is NOT in that group on this board — see TODO.
+ *   - Sensor i2c bus = i2c2 (i2c@1c2b400) == linux adapter i2c-2 -> matches the
+ *     "ov5640 2-003c" / 0x3c that Qengineering reported.
+ *   - A CSI-PWR-EN GPIO line exists (camera power enable).
+ *
+ * /!\ DRAFT — three things must be confirmed against the PHYSICAL OV5640 module
+ *    when it arrives (each marked TODO below); do NOT flash blindly:
+ *      1. MCLK/xclk source: the ov5640 driver requires a 24 MHz "xclk". On H3 the
+ *         CSI core can drive MCLK on PE1 (add PE1 to a csi pinmux + use the CSI
+ *         clk), or use a fixed-clock. Most H3 ov5640 overlays add PE1 to the mux
+ *         and feed the sensor from the CSI mclk. VERIFY which the 6.18 driver wants.
+ *      2. Regulator rails: AVDD (2.8V), DOVDD (1.8V), DVDD (1.5V). The "for BPI"
+ *         module usually has on-board LDOs fed from one supply enabled by CSI-PWR-EN;
+ *         if so, model them as a single fixed regulator gated by that GPIO.
+ *      3. reset / powerdown GPIO lines (CSI-RESET#, CSI-STBY/PWDN). Read the exact
+ *         PH-bank lines from gpio-line-names once the module is seated.
+ *
+ * Verify after load:
+ *   i2cdetect -y 2            # OV5640 at 0x3c
+ *   media-ctl -p -d /dev/media1   # ov5640 entity linked to sun6i-csi bridge
+ *   v4l2-ctl -d /dev/video1 --list-formats-ext
+ *   # then, before capture (mandatory format-set):
+ *   media-ctl -d /dev/media1 --set-v4l2 '"ov5640 2-003c":0[fmt:YUYV8_2X8/640x480@1/30]'
+ */
+
+/dts-v1/;
+/plugin/;
+
+&i2c2 {
+	status = "okay";
+
+	ov5640: camera@3c {
+		compatible = "ovti,ov5640";
+		reg = <0x3c>;
+
+		/* TODO(1) xclk: 24 MHz MCLK to the sensor. Replace with the real
+		 * clock phandle (CSI mclk or a fixed-clock) once verified. */
+		/* clocks = <&...>; */
+		/* clock-names = "xclk"; */
+
+		/* TODO(2) regulators — adjust to the module's actual rails/GPIO */
+		/* AVDD-supply  = <&reg_csi_avdd>; */
+		/* DOVDD-supply = <&reg_csi_dovdd>; */
+		/* DVDD-supply  = <&reg_csi_dvdd>; */
+
+		/* TODO(3) reset / powerdown — read exact PH lines from the board */
+		/* reset-gpios     = <&pio 7 14 GPIO_ACTIVE_LOW>;  // PH14 (CSI-RESET#) */
+		/* powerdown-gpios = <&pio 7 19 GPIO_ACTIVE_HIGH>; // PH19 (CSI-STBY)  */
+
+		port {
+			ov5640_ep: endpoint {
+				remote-endpoint = <&csi_ep>;
+				bus-width = <8>;          /* 8-bit DVP */
+				hsync-active = <1>;
+				vsync-active = <0>;
+				pclk-sample = <1>;
+			};
+		};
+	};
+};
+
+&csi {
+	status = "okay";
+
+	port {
+		csi_ep: endpoint {
+			remote-endpoint = <&ov5640_ep>;
+			bus-width = <8>;
+			hsync-active = <1>;
+			vsync-active = <0>;
+			pclk-sample = <1>;
+		};
+	};
+};

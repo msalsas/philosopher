@@ -285,8 +285,10 @@ revert it) once the board is stable again. The relevant env knobs (added alongsi
   that separates speech, not the gain).
 
 ### B.4 Not-yet-wired / known gaps on this board
-- **Camera is CSI, not USB** → `cv2.VideoCapture(0, V4L2)` fails → camera mock for now
-  (needs the CSI sensor driver / overlay; revisit when the camera is chosen).
+- **Camera is CSI (parallel/DVP), not USB** → `cv2.VideoCapture(0, V4L2)` fails → camera
+  mock for now (needs the CSI sensor driver / custom DT overlay — see **B.4.2**). The
+  `/dev/video0` + `/dev/media0` that *do* exist are the **cedrus VPU decoder**, not a
+  camera capture device — `media-ctl -p` shows `driver cedrus`, not a sensor.
 - **Servos need `OPi.GPIO`** (Allwinner H3), not RPi.GPIO. Not installed → servo mock.
   `hardware/servos.py` still uses RPi-style pin numbers (GPIO12/13/18) — **must be remapped
   to H3** before wiring real servos.
@@ -335,6 +337,57 @@ bound to a `maxim,max98357a` codec, then verify the card appears in `aplay -l` a
 `PHILOSOPHER_SPEAKER_ALSA_DEVICE` at it. ⚠️ Re-enable the USB serial console first as a
 recovery net (a bad overlay can break boot, and HDMI kills 2.4 GHz WiFi / there's no
 serial otherwise). Overlays live in `/boot/dtb-<ver>/overlay/` + `/boot/overlay-user/`.
+
+### B.4.2 Camera — OV5640 DVP (the ONLY CSI camera that works on H3)
+⚠️ **Hardware constraint, learned the hard way:** the **Allwinner H3 has only a parallel
+(DVP) camera interface — NO MIPI CSI-2 receiver.** Every Raspberry Pi camera (OV5647,
+IMX219, …) is MIPI CSI-2, so **none of them work on the M2 Zero**, even though the FFC may
+look similar. (We confirmed this after an OV5647 "night vision" module was bought by
+mistake — it physically won't even seat: the M2 Zero CSI is a **24-pin FPC**, not the
+Pi's 15-pin.) Bridging MIPI→DVP needs an FPGA — not worth it.
+
+**Correct part:** an **OV5640 module sold *"for Banana Pi M2 Zero / M2+"*** — the DVP/parallel
+variant on the 24-pin FPC, plugs straight into the CSI, **no expansion board** (e.g. OpenELAB
+"Banana Pi BPI-M2+/M2 Zero Camera", ~$13; also Banana Pi store / AliExpress clones). Buy
+checklist — the listing **must** say M2 Zero / M2+ and "no expansion board"; reject anything
+"for Raspberry Pi" (MIPI 15-pin) or a generic 24-pin OV5640 for another board (Tinker etc.;
+FPC pinout may differ). Verified-working unit (Qengineering): AliExpress item `32660117929`.
+
+**Reference: [Qengineering/BananaPi-M2-Zero-OV5640](https://github.com/Qengineering/BananaPi-M2-Zero-OV5640).**
+Proves the OV5640 works on this exact board and pins down the device specifics below.
+⚠️ **Do NOT flash their prebuilt SD image** — it's Armbian 21.02 / kernel 5.10 / Buster
+(ancient) and would wipe our Trixie + server setup; they also warn *"do not `apt upgrade`
+or it removes the OV5640 drivers"* (fragile, baked to that kernel). We're on **6.18 mainline
+where `sun6i-csi` + `ov5640` are upstream**, so build the overlay instead. Their image is
+the fallback only if the overlay fights us.
+
+**Device specifics (confirmed by the repo + our own probe):**
+- Camera lands on **`/dev/video1` + `/dev/media1`** — `video0`/`media0` are the **cedrus VPU**
+  (`media-ctl -p` → `driver cedrus`), which is why `cv2.VideoCapture(0)` opens nothing usable.
+- OV5640 i2c entity is **`ov5640 2-003c`** → address **`0x3c` on i2c bus 2** (the CSI TWI,
+  appears only once the overlay loads — *not* the header's `i2c-0` we probed earlier).
+- **Mandatory before capture** (the format-set gotcha — `camera.py` must run this, or open the
+  device after it's run, before cv2 reads frames):
+  ```bash
+  sudo media-ctl --device /dev/media1 \
+    --set-v4l2 '"ov5640 2-003c":0[fmt:YUYV8_2X8/640x480@1/30]'
+  ```
+- Performance ceiling on H3 is **~2 fps @ 720p** — fine here: our `PHILOSOPHER_CAMERA_FPS`
+  target is 0.5 fps (face/emotion frames), well within budget.
+
+**Software (no ready overlay — build a custom one, same flow as B.4.1):**
+1. Seat the 24-pin FPC in the CSI connector (mind contact orientation).
+2. Compile a custom `sun8i-h3` overlay via `armbian-add-overlay` that enables `sun6i-csi`
+   + an `ov5640` sensor node in **DVP 8-bit** mode (MCLK/PCLK, h/vsync, the CSI i2c bus,
+   and the sensor's regulators/reset/pwdn GPIOs). The mainline `ov5640` driver supports DVP.
+3. Verify: `i2cdetect -y 2` shows the OV5640 at **`0x3c`**; `media-ctl -p -d /dev/media1`
+   shows an `ov5640` entity linked to the `sun6i-csi` bridge; **`/dev/video1`** appears
+   (distinct from the cedrus `video0`). `v4l2-ctl -d /dev/video1 --list-formats-ext` shows
+   sensor formats (e.g. UYVY/RGB), not the cedrus decode formats.
+4. Run the `media-ctl --set-v4l2` format command above, then drop the mock in
+   `banana_client/vision/camera.py` and point it at **`/dev/video1`** (currently it V4L2-opens
+   index 0 → the cedrus; needs index 1 / `/dev/video1`, plus running the media-ctl init first).
+⚠️ Re-enable the USB serial console first (a bad overlay can break boot — same caveat as B.4.1).
 
 ### B.5 Stability — hard hangs (UNRESOLVED)
 The board hung repeatedly under sustained audio load — with PyAudio *and* on the first
