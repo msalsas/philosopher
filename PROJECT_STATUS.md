@@ -43,18 +43,38 @@ None of these are user error; they are the wrong board for a wireless,
 plug&play, moving+seeing+hearing toy.
 
 ## Verdict / recommendation
-Rebuild the **body** on a better board. This is **not** starting from zero —
-the server and the toy code are reused as-is; only the host board changes, plus
-minor pin/driver config. Leading candidate: a board with a **real Wi-Fi radio**,
-**MIPI camera support**, and **more RAM** in the same tiny form factor (e.g.
-Raspberry Pi Zero 2 W: decent Wi-Fi, MIPI camera just works, 512 MB but far
-better supported, hammer-header option, huge community). Confirm the exact fit
+Rebuild the **body** on a **genuine Raspberry Pi Zero 2 WH** (not a clone — the
+M2 Zero's failures were clone corner-cuts behind a Pi-lookalike shell). Same
+tiny form factor (fits the plush), and it fixes each failure we actually hit:
+- **Wi-Fi** — proper Cypress radio + PCB antenna, well-supported (fixes THE blocker).
+- **Camera** — real **MIPI CSI-2**: RPi cameras just work, no custom overlay.
+- **Header** — the "**WH**" variant ships with the header **pre-soldered** (no soldering).
+- **Servos** — **hardware PWM** + mature libs (gpiozero/pigpio), no bit-banging.
+- **Software** — Raspberry Pi OS + huge community; almost none of the sunxi/Armbian
+  pain applies.
+
+This is **not** starting from zero — the RPi4 server and the toy code are reused
+as-is; only the host board + minor pin/driver config change.
+
+**Does NOT fix (board-agnostic, plan for it):** servo 5 V draw is still a design
+task — power servos from a **separate 5 V rail / the toy's battery**, not the
+board pin. Still 512 MB (fine — the toy is I/O only). Confirm exact parts/cables
 before buying (the lesson from this build).
 
 ## Parts that carry over to a new board
-USB mic, USB speaker, the servos, the OV5640 DVP camera (once it arrives) — all
-reusable. Wasted/board-specific: the M2 Zero itself, and see
-`memory/wasted-hardware-inventory` for the earlier mis-buys and reuse ideas.
+USB mic, USB speaker, the servos — reusable on any board.
+
+**Cameras (note the reversal on a MIPI board like the Pi Zero 2 W):**
+- ✅ **OV5647** (the RPi MIPI "night-vision" module bought first) — **works** on
+  the Pi Zero 2 W (it's MIPI; the Pi has MIPI). ⚠️ Needs the **narrow Pi-Zero
+  camera ribbon** (mini 22-pin connector), often bundled with "for Pi Zero"
+  modules or ~2-3€; verify against the exact module before relying on it.
+- ❌ **OV5640 DVP** (the "for Banana Pi M2 Zero" module ordered later) — **does
+  NOT work** on a MIPI board; it was DVP/parallel, only for the abandoned Banana.
+
+So switching to the Pi Zero 2 W rescues the OV5647 (the earlier "wasted" cam) and
+strands the OV5640 DVP instead. Wasted/board-specific: the M2 Zero itself and the
+OV5640 DVP; see `memory/wasted-hardware-inventory` for reuse ideas.
 
 ## How to resume (cold start)
 1. Pick/confirm the replacement board (see verdict).
