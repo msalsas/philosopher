@@ -11,11 +11,16 @@ class ToyWebSocketClient:
     """WebSocket client for toy-server communication."""
 
     def __init__(self, server_url: str, toy_id: str = "banana_01",
-                 reconnect_interval=5.0, max_reconnect=10):
+                 reconnect_interval=5.0, max_reconnect=10, send_timeout=4.0):
         self.url = server_url.rstrip("/")
         self.toy_id = toy_id
         self.reconnect_interval = reconnect_interval
         self.max_reconnect = max_reconnect
+        # Cap on how long a single send may block. On a flaky Wi-Fi link
+        # ws.send_bytes() can hang for minutes draining TCP on a half-dead
+        # socket; without this the audio task stalls there and the mic loop
+        # stops feeding forever (only reconnect via the receive loop survives).
+        self.send_timeout = send_timeout
         self.session: aiohttp.ClientSession | None = None
         self.ws: aiohttp.ClientWebSocketResponse | None = None
         self._reconnect_count = 0
@@ -62,16 +67,18 @@ class ToyWebSocketClient:
 
     async def _send_bytes(self, data: bytes):
         # Drop the chunk if the socket is down; the receive loop drives reconnect.
+        # wait_for bounds a hang on a half-dead socket so the caller (the mic
+        # loop) can never be blocked here indefinitely — drop the chunk instead.
         if self.ws and not self.ws.closed:
             try:
-                await self.ws.send_bytes(data)
+                await asyncio.wait_for(self.ws.send_bytes(data), self.send_timeout)
             except Exception:
                 pass
 
     async def send_json(self, data: dict):
         if self.ws and not self.ws.closed:
             try:
-                await self.ws.send_str(json.dumps(data))
+                await asyncio.wait_for(self.ws.send_str(json.dumps(data)), self.send_timeout)
             except Exception:
                 pass
 

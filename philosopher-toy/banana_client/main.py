@@ -59,12 +59,28 @@ class Toy:
         print("[Toy] Ready!")
 
     async def run(self):
+        # return_exceptions=True so one task raising can't cancel the siblings
+        # (e.g. a transient error in the audio path must not kill receive/idle).
         await asyncio.gather(
-            self._audio_task(),
-            self._video_task(),
+            self._resilient(self._audio_task, "audio"),
+            self._resilient(self._video_task, "video"),
             self._receive_task(),
             self.servos.idle_loop(),   # subtle idle motion so it isn't a statue
+            return_exceptions=True,
         )
+
+    async def _resilient(self, task_fn, name):
+        """Keep a sensor loop alive: if it dies (e.g. a send blew up mid-drop),
+        log and restart it rather than leaving the mic/camera silent forever."""
+        while True:
+            try:
+                await task_fn()
+                return  # clean completion (shouldn't happen for infinite loops)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[Toy] {name} task error ({exc}); restarting in 1s")
+                await asyncio.sleep(1)
 
     async def _audio_task(self):
         async for event in self.mic.capture_stream():
