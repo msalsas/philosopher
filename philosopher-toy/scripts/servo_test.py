@@ -13,11 +13,12 @@ Wiring (one small servo):
     V+     (red, middle)   -> physical pin 2 (5V)
     GND    (brown/black)   -> physical pin 6 (GND)
 
-Run on the board (needs root for GPIO):
-    sudo /home/manolo/philosopher/philosopher-toy/.venv/bin/python \
-        /home/manolo/philosopher/philosopher-toy/scripts/servo_test.py PA6
+Run on the board (needs root for GPIO). One or more SUNXI pins:
+    sudo .../python scripts/servo_test.py PA6            # one servo
+    sudo .../python scripts/servo_test.py PA6 PA7 PA8    # three, ONE AT A TIME
 
-The servo should step: center -> one end -> other end -> center.
+Each pin is swept center -> one end -> other end -> center, sequentially (never
+two at once) — matching servos.py's brownout-safe one-servo-at-a-time design.
 """
 from __future__ import annotations
 
@@ -26,35 +27,43 @@ import time
 
 import OPi.GPIO as GPIO
 
-PIN = sys.argv[1] if len(sys.argv) > 1 else "PA6"
+PINS = sys.argv[1:] or ["PA6"]
 PERIOD = 0.02  # 20 ms frame = 50 Hz
 
 
-def hold(pulse_ms: float, seconds: float) -> None:
+def hold(pin: str, pulse_ms: float, seconds: float) -> None:
     """Bit-bang a fixed-width pulse train for `seconds` to hold a servo angle."""
     pulse = pulse_ms / 1000.0
     gap = max(0.0, PERIOD - pulse)
     end = time.time() + seconds
     while time.time() < end:
-        GPIO.output(PIN, 1)
+        GPIO.output(pin, 1)
         time.sleep(pulse)
-        GPIO.output(PIN, 0)
+        GPIO.output(pin, 0)
         time.sleep(gap)
+
+
+def sweep(pin: str) -> None:
+    print(f"[servo_test] {pin}: bit-banging ~50 Hz — watch the horn move")
+    # ~1.0 ms = -90deg, 1.5 ms = center, 2.0 ms = +90deg
+    for label, pulse in (("center", 1.5), ("-90", 1.0), ("+90", 2.0), ("center", 1.5)):
+        print(f"  {pin} -> {label} ({pulse} ms pulse)")
+        hold(pin, pulse, 1.5)
+    GPIO.output(pin, 0)
 
 
 def main() -> None:
     GPIO.setmode(GPIO.SUNXI)
     GPIO.setwarnings(False)
-    GPIO.setup(PIN, GPIO.OUT)
-    print(f"[servo_test] bit-banging {PIN} at ~50 Hz — watch the horn move")
+    for pin in PINS:
+        GPIO.setup(pin, GPIO.OUT)
     try:
-        # ~1.0 ms = -90deg, 1.5 ms = center, 2.0 ms = +90deg
-        for label, pulse in (("center", 1.5), ("-90", 1.0),
-                            ("+90", 2.0), ("center", 1.5)):
-            print(f"  -> {label} ({pulse} ms pulse)")
-            hold(pulse, 1.5)
+        for pin in PINS:          # one servo at a time (brownout-safe)
+            sweep(pin)
+            time.sleep(0.5)
     finally:
-        GPIO.output(PIN, 0)
+        for pin in PINS:
+            GPIO.output(pin, 0)
         GPIO.cleanup()
         print("[servo_test] done, GPIO cleaned up")
 

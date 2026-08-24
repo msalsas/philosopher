@@ -289,9 +289,9 @@ revert it) once the board is stable again. The relevant env knobs (added alongsi
   mock for now (needs the CSI sensor driver / custom DT overlay — see **B.4.2**). The
   `/dev/video0` + `/dev/media0` that *do* exist are the **cedrus VPU decoder**, not a
   camera capture device — `media-ctl -p` shows `driver cedrus`, not a sensor.
-- **Servos need `OPi.GPIO`** (Allwinner H3), not RPi.GPIO. Not installed → servo mock.
-  `hardware/servos.py` still uses RPi-style pin numbers (GPIO12/13/18) — **must be remapped
-  to H3** before wiring real servos.
+- **Servos run on H3 SUNXI pins via bit-banged PWM** (`OPi.GPIO`). `hardware/servos.py` still
+  uses RPi BCM pins (12/13/18) + `GPIO.PWM` — **must be ported to SUNXI + bit-bang**. Full
+  detail in **B.4.3**.
 - **Speakers are moving to GPIO/I2S** (e.g. MAX98357A DAC → a new ALSA card via DT overlay;
   `AudioPlayer` just retargets the device). I2S also stops drawing from the USB power rail.
 
@@ -388,6 +388,42 @@ the fallback only if the overlay fights us.
    `banana_client/vision/camera.py` and point it at **`/dev/video1`** (currently it V4L2-opens
    index 0 → the cedrus; needs index 1 / `/dev/video1`, plus running the media-ctl init first).
 ⚠️ Re-enable the USB serial console first (a bad overlay can break boot — same caveat as B.4.1).
+
+### B.4.3 Servos — H3 GPIO, bit-banged PWM, 5V distribution
+- **The 40-pin header SHIPS UNSOLDERED** on this unit (loose strip — the "regleta"); it must
+  be hand-soldered before any GPIO use. The board boots fine even with rough joints — bad
+  joints simply don't conduct, so **test each pin before relying on it** (a servo that moves
+  proves its signal/5V/GND joints conduct). Cold joints (grey balls not wetting the copper)
+  are the #1 beginner failure → flux + heat *both* pin and pad, ~2 s, shiny cone.
+- **Header is Raspberry-Pi-pin-compatible** (verified from the live DT): **5V on pins 2 & 4**,
+  **GND on 6/9/14/20/25/30/34/39**, 3.3V on 1/17, I2C on 3/5, UART on 8/10. GPIO pins use
+  **SUNXI names** — e.g. **PA6 = pin 7, PA7 = pin 29, PA8 = pin 31** (read `gpio-line-names`
+  from the decompiled `sun8i-h2-plus-bananapi-m2-zero.dtb`; pin 1 = the square pad underside).
+- **Drive via `OPi.GPIO`** (`pip install OPi.GPIO`), `GPIO.setmode(GPIO.SUNXI)`, pin names like
+  `"PA6"`. ⚠️ Its **`PWM` class is HARDWARE-PWM only** (`PWM(chip,pin,freq,duty)` via sysfs
+  pwmchip) and the M2 Zero exposes **no hardware PWM** on the header (`/sys/class/pwm` empty)
+  → **bit-bang** the ~50 Hz signal with `GPIO.output` (jittery but moves a servo fine). See
+  **`scripts/servo_test.py`** (`sudo .../python scripts/servo_test.py PA6 [PA7 PA8]`, sweeps
+  each pin one at a time).
+- **GPIO needs root** (`sudo`) — `manolo` isn't in a gpio group. The toy will need to run as
+  root or get a udev rule; `servo_test.py` needs sudo (so it can't be launched over a
+  non-interactive SSH without a NOPASSWD entry).
+- **`hardware/servos.py` is NOT yet ported:** still RPi BCM pins (12/13/18) + `GPIO.PWM`.
+  Port to `GPIO.SUNXI` + bit-bang (mirror `servo_test.py`), pick 3 SUNXI pins, keep the
+  one-servo-at-a-time sequencing.
+- **5V distribution (the catch):** the header has only **two 5V pins (2, 4)**, but 3 servos +
+  the MAX98357A all want 5V. Fan one pin out with a **WAGO 221-415 (5 levers, all holes are a
+  common node): pin 2 → 3 servo reds + amp VIN**. GND likewise (2nd 221-415, or just use the
+  many GND pins). ⚠️ A **WAGO 221-412 = 2 levers = joins only 2 wires** (the small extra holes
+  are multimeter test points, not wire slots) — use those for the **speaker leads**, not for
+  distribution. WAGO clamps **bare wire**, so make stripped pigtails off Dupont jumpers.
+- **Dupont gender:** header pins are male → **male-female** for servos (female on the pin, male
+  into the servo's 3-pin female connector). The MAX98357A is also male after soldering its
+  strip → it needs **female-female**.
+- **Power headroom:** a single servo runs on the kit 5V/2A supply without browning out the
+  board (servos move ONE AT A TIME by design). The combined 3-servo + audio draw on 2 A is the
+  open question — test before buying a bigger PSU. If the bit-bang jitter matters, a **PCA9685**
+  (I2C, 16-ch) gives clean hardware PWM. [[wasted-hardware-inventory]]
 
 ### B.5 Stability — hard hangs (UNRESOLVED)
 The board hung repeatedly under sustained audio load — with PyAudio *and* on the first
