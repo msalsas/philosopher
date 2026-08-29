@@ -114,26 +114,30 @@ class Orchestrator:
         )
         print(f"[TIMING] STT={time.perf_counter() - _t0:.2f}s", flush=True)
 
-        if result.get("low_confidence"):
-            text = self.personality.fallback("not_understood")
-            await self.ws_manager.send_json(toy_id, {
-                "type": "text", "content": text, "emotion": "neutral",
-            })
-            # Speak it too (not just text): the toy clears its per-turn mic gate
-            # when reply audio arrives, so every reply path must end in a WAV.
-            if self.tts and self.settings.tts.enabled:
-                audio_bytes = await self.tts.synthesize(text)
-                if audio_bytes:
-                    await self.ws_manager.send_binary(toy_id, 0x03, audio_bytes)
+        # Either "couldn't transcribe" case -- low confidence OR empty text --
+        # must send SOMETHING back, including a WAV, so the toy releases its
+        # per-turn mic gate instead of going deaf until RESPONSE_TURN_TIMEOUT.
+        if result.get("low_confidence") or not result.get("text", "").strip():
+            await self._send_not_understood(toy_id)
             return
 
         text = result.get("text", "")
-        if not text:
-            return
 
         face = self.last_vision.get(toy_id) or {}
         await self._emit(EventType.USER_TEXT, face_id=face.get("face_id"), text=text)
         await self._stream_response(toy_id, text, _t0)
+
+    async def _send_not_understood(self, toy_id: str) -> None:
+        """Tell the user we didn't catch that (text + WAV). The WAV also releases
+        the toy's per-turn mic gate on this no-reply path (empty / low-conf STT)."""
+        text = self.personality.fallback("not_understood")
+        await self.ws_manager.send_json(toy_id, {
+            "type": "text", "content": text, "emotion": "neutral",
+        })
+        if self.tts and self.settings.tts.enabled:
+            audio_bytes = await self.tts.synthesize(text)
+            if audio_bytes:
+                await self.ws_manager.send_binary(toy_id, 0x03, audio_bytes)
 
     async def _send_sentence(self, toy_id: str, state: AgentState, sentence: str) -> str:
         """Format one sentence and stream it to the toy: text + servo + WAV.
