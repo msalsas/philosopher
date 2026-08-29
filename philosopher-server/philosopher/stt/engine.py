@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import numpy as np
 
@@ -21,7 +22,14 @@ class StreamingSTT:
         if not mock:
             try:
                 from faster_whisper import WhisperModel
-                self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
+                # Use all CPU cores: on the RPi4 CTranslate2 otherwise under-
+                # subscribes threads and tiny STT crawls (~5s for ~1s of audio).
+                _threads = os.cpu_count() or 4
+                self.model = WhisperModel(
+                    model_size, device=device, compute_type=compute_type,
+                    cpu_threads=_threads,
+                )
+                logger.info("STT WhisperModel loaded: %s int8 cpu_threads=%d", model_size, _threads)
             except Exception as exc:  # noqa: BLE001
                 # Real mode but the model didn't load. This is NOT a benign
                 # degrade: without STT the toy can't hear anything. Make it loud
