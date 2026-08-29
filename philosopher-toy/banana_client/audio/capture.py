@@ -58,7 +58,10 @@ class MicrophoneCapture:
         thr_env = os.getenv("PHILOSOPHER_VAD_THRESHOLD")
         self.threshold = float(thr_env) if thr_env else threshold
         self.gain = float(os.getenv("PHILOSOPHER_MIC_GAIN", "1.0"))
-        self.silence = silence
+        # Silence window (s) before an utterance is considered ended: lower =
+        # snappier turnaround, but too low cuts the speaker off on a mid-thought
+        # pause. Env-tunable so it can be tuned per-room without a code change.
+        self.silence = float(os.getenv("PHILOSOPHER_VAD_SILENCE", silence))
         # gate() -> True means "suppress the mic" (e.g. while the toy is speaking),
         # so the toy never transcribes its own TTS (no echo cancellation needed).
         self.gate = gate

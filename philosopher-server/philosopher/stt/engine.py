@@ -87,8 +87,12 @@ class StreamingSTT:
             }
 
         audio_np = np.frombuffer(buffer, dtype=np.int16).astype(np.float32) / 32768.0
+        # beam_size=1 (greedy) instead of the default 5: on the RPi4 the beam
+        # search dominates STT latency, and the accuracy loss on the `tiny`
+        # model is negligible for short conversational utterances.
         segments, info = self.model.transcribe(
             audio_np, language=language, condition_on_previous_text=False,
+            beam_size=1,
         )
 
         # `segments` is a one-shot generator — materialize it once, otherwise the
