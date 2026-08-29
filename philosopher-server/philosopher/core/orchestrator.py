@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import signal
+import time
 from typing import Any
 
 from philosopher.config.settings import Settings, get_settings
@@ -107,9 +108,11 @@ class Orchestrator:
         if not self.stt or not self.ws_manager:
             return
 
+        _t0 = time.perf_counter()
         result = await self.stt.transcribe(
             toy_id, confidence_threshold=self.settings.stt.confidence_threshold,
         )
+        print(f"[TIMING] STT={time.perf_counter() - _t0:.2f}s", flush=True)
 
         if result.get("low_confidence"):
             await self.ws_manager.send_json(toy_id, {
@@ -125,7 +128,7 @@ class Orchestrator:
 
         face = self.last_vision.get(toy_id) or {}
         await self._emit(EventType.USER_TEXT, face_id=face.get("face_id"), text=text)
-        await self._stream_response(toy_id, text)
+        await self._stream_response(toy_id, text, _t0)
 
     async def _send_sentence(self, toy_id: str, state: AgentState, sentence: str) -> None:
         """Format one sentence and stream it to the toy (text + servo + WAV)."""
@@ -141,7 +144,9 @@ class Orchestrator:
             "type": "servo", "emotion": state.emotion or "neutral",
         })
         if self.tts and self.settings.tts.enabled:
+            _tt = time.perf_counter()
             audio_bytes = await self.tts.synthesize(formatted)
+            print(f"[TIMING] TTS={time.perf_counter() - _tt:.2f}s ({len(formatted)} chars)", flush=True)
             if audio_bytes:
                 await self.ws_manager.send_binary(toy_id, 0x03, audio_bytes)
 
@@ -156,7 +161,7 @@ class Orchestrator:
             if audio_bytes:
                 await self.ws_manager.send_binary(toy_id, 0x03, audio_bytes)
 
-    async def _stream_response(self, toy_id: str, user_message: str):
+    async def _stream_response(self, toy_id: str, user_message: str, _t0: float | None = None):
         """Split-graph streaming: nodes 1-3, then external LLM stream, then store."""
         if not self.graph or not self.ws_manager:
             return
@@ -170,33 +175,50 @@ class Orchestrator:
             face_name=face.get("name"),
             emotion=face.get("emotion"),
         )
+        _tc = time.perf_counter()
         state = await node_perception(state, self.graph.ctx)
         state = await node_memory(state, self.graph.ctx)
         state = await node_prompt(state, self.graph.ctx)
+        _ctx_dt = time.perf_counter() - _tc
 
         # Shared message assembly (incl. new-face introduction / name-ask).
         messages = build_messages(state)
 
         buffer = ""
         full_response = ""
+        _t_llm = time.perf_counter()
+        _t_first_tok = None
+        _t_first_audio = None
         try:
             async for token in self.llm.chat_stream(
                 messages,
                 system_prompt=state.system_prompt,
-                max_tokens=250,
+                max_tokens=self.settings.llm.max_tokens,
                 temperature=self.settings.llm.temperature,
             ):
+                if _t_first_tok is None:
+                    _t_first_tok = time.perf_counter()
                 buffer += token
                 full_response += token
                 if any(buffer.endswith(t) for t in [".", "!", "?", "\n"]):
                     sentence = buffer.strip()
                     if sentence:
                         await self._send_sentence(toy_id, state, sentence)
+                        if _t_first_audio is None:
+                            _t_first_audio = time.perf_counter()
                     buffer = ""
             if buffer.strip():
                 await self._send_sentence(toy_id, state, buffer.strip())
+                if _t_first_audio is None:
+                    _t_first_audio = time.perf_counter()
         except Exception:
             pass  # stream failed mid-way; fall through to the empty/fallback check
+
+        _ft = (_t_first_tok - _t_llm) if _t_first_tok else -1.0
+        _fa = (_t_first_audio - _t0) if (_t0 and _t_first_audio) else -1.0
+        _lt = time.perf_counter() - _t_llm
+        print(f"[TIMING] ctx={_ctx_dt:.2f}s LLM_first_tok={_ft:.2f}s "
+              f"FIRST_AUDIO(desde speech_ended)={_fa:.2f}s LLM_total={_lt:.2f}s", flush=True)
 
         if not full_response.strip():
             # Total failure (or empty generation): apologize once, don't store.
