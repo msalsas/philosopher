@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 
 try:
     from dotenv import load_dotenv
@@ -19,6 +20,10 @@ from banana_client.vision.camera import Camera
 class Toy:
     """Main toy controller integrating all hardware modules."""
 
+    # Fail-safe: if a reply never arrives (server error / lost frame), stop
+    # gating the mic after this long so the toy can't go deaf forever.
+    RESPONSE_TURN_TIMEOUT = 30.0
+
     def __init__(self) -> None:
         self.server_url = os.getenv("PHILOSOPHER_SERVER_URL", "ws://localhost:8080")
         self.toy_id = os.getenv("PHILOSOPHER_TOY_ID", "banana_01")
@@ -28,6 +33,11 @@ class Toy:
         self.player = None
         self.camera = None
         self.servos = None
+        # Half-duplex per TURN: gate the mic from the moment we send
+        # speech_ended until the reply's audio arrives, so we don't pile new
+        # utterances onto a server that's still busy transcribing/thinking.
+        self._awaiting_response = False
+        self._await_deadline = 0.0
 
     async def init(self):
         print("[Toy] Initializing...")
@@ -48,8 +58,7 @@ class Toy:
         self.player.init()
 
         # Suppress the mic while the toy is speaking (anti-echo / half-duplex).
-        self.mic = MicrophoneCapture(gate=lambda: bool(self.player and self.player.is_playing),
-                                     mock=self.mock)
+        self.mic = MicrophoneCapture(gate=self._mic_gated, mock=self.mock)
         await self.mic.init()
 
         self.camera = Camera()
@@ -82,6 +91,17 @@ class Toy:
                 print(f"[Toy] {name} task error ({exc}); restarting in 1s")
                 await asyncio.sleep(1)
 
+    def _mic_gated(self) -> bool:
+        """True = suppress the mic. Half-duplex: silent while the toy is
+        speaking (anti-echo) AND while a turn is being processed server-side."""
+        if self.player and self.player.is_playing:
+            return True
+        if self._awaiting_response:
+            if time.monotonic() < self._await_deadline:
+                return True
+            self._awaiting_response = False  # fail-safe: resume listening
+        return False
+
     async def _audio_task(self):
         async for event in self.mic.capture_stream():
             if event["type"] == "speech_started":
@@ -89,6 +109,9 @@ class Toy:
             elif event["type"] == "speech_ended":
                 await self.ws.send_audio(event["audio"])
                 await self.ws.send_json({"type": "speech_ended"})
+                # Stop listening until the reply comes back (or we time out).
+                self._awaiting_response = True
+                self._await_deadline = time.monotonic() + self.RESPONSE_TURN_TIMEOUT
 
     async def _video_task(self):
         interval = 1.0 / self.camera.fps
@@ -111,8 +134,12 @@ class Toy:
             elif msg["type"] == "servo":
                 await self.servos.animate(msg["emotion"])
             elif msg["type"] == "binary" and msg.get("frame_type") == 0x03:
+                # Reply audio arrived: the turn is done processing. Clear the
+                # gate; playback itself keeps the mic suppressed (is_playing).
+                self._awaiting_response = False
                 await self.player.play_wav(msg["payload"])
             elif msg["type"] == "error":
+                self._awaiting_response = False
                 print(f"[Error] {msg['message']}")
             elif msg["type"] == "closed":
                 print("[Toy] Connection lost, reconnecting...")

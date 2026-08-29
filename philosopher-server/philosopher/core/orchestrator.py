@@ -115,11 +115,16 @@ class Orchestrator:
         print(f"[TIMING] STT={time.perf_counter() - _t0:.2f}s", flush=True)
 
         if result.get("low_confidence"):
+            text = self.personality.fallback("not_understood")
             await self.ws_manager.send_json(toy_id, {
-                "type": "text",
-                "content": self.personality.fallback("not_understood"),
-                "emotion": "neutral",
+                "type": "text", "content": text, "emotion": "neutral",
             })
+            # Speak it too (not just text): the toy clears its per-turn mic gate
+            # when reply audio arrives, so every reply path must end in a WAV.
+            if self.tts and self.settings.tts.enabled:
+                audio_bytes = await self.tts.synthesize(text)
+                if audio_bytes:
+                    await self.ws_manager.send_binary(toy_id, 0x03, audio_bytes)
             return
 
         text = result.get("text", "")
