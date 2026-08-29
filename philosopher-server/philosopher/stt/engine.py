@@ -13,7 +13,7 @@ class StreamingSTT:
     """Batch STT that accumulates audio and transcribes on speech_ended."""
 
     def __init__(self, model_size: str = "tiny", device: str = "cpu",
-                 compute_type: str = "int8", mock: bool = False):
+                 compute_type: str = "int8", mock: bool = False, cpu_threads: int = 0):
         self.mock = mock
         self.model_size = model_size
         self.model = None
@@ -22,9 +22,9 @@ class StreamingSTT:
         if not mock:
             try:
                 from faster_whisper import WhisperModel
-                # Use all CPU cores: on the RPi4 CTranslate2 otherwise under-
-                # subscribes threads and tiny STT crawls (~5s for ~1s of audio).
-                _threads = os.cpu_count() or 4
+                # Threads for decoding. 0 = all cores; lower it (env) on a
+                # power-marginal Pi so the current spike doesn't under-volt.
+                _threads = cpu_threads or (os.cpu_count() or 4)
                 self.model = WhisperModel(
                     model_size, device=device, compute_type=compute_type,
                     cpu_threads=_threads,

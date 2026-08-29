@@ -65,6 +65,10 @@ class STTSettings(BaseSettings):
     # a CUDA GPU. Decoupled from device so a laptop/GPU can be tuned via env.
     compute_type: str = "int8"
     confidence_threshold: float = -0.5
+    # CPU threads for faster-whisper decoding. 0 = auto (all cores). On a
+    # power-marginal Pi, lowering this (e.g. 2) shrinks the current spike that
+    # can trigger under-voltage throttling -- trading peak speed for consistency.
+    cpu_threads: int = 0
 
 
 class VisionSettings(BaseSettings):

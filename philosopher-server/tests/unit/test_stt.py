@@ -22,14 +22,16 @@ class TestStreamingSTT:
         seen = {}
 
         class FakeModel:
-            def __init__(self, model_size, device="cpu", compute_type="int8"):
-                seen.update(model_size=model_size, device=device, compute_type=compute_type)
+            def __init__(self, model_size, device="cpu", compute_type="int8", cpu_threads=0):
+                seen.update(model_size=model_size, device=device,
+                            compute_type=compute_type, cpu_threads=cpu_threads)
 
         monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
         stt = StreamingSTT(model_size="base", device="cuda",
-                           compute_type="float16", mock=False)
+                           compute_type="float16", cpu_threads=3, mock=False)
         assert stt.model is not None
-        assert seen == {"model_size": "base", "device": "cuda", "compute_type": "float16"}
+        assert seen == {"model_size": "base", "device": "cuda",
+                        "compute_type": "float16", "cpu_threads": 3}
 
     @pytest.mark.asyncio
     async def test_clear_buffer(self):

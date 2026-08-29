@@ -72,6 +72,7 @@ def main():
             model_size=settings.stt.model,
             device=settings.stt.device,
             compute_type=settings.stt.compute_type,
+            cpu_threads=settings.stt.cpu_threads,
             mock=mock,
         )
         orch.vision = VisionProcessor(
