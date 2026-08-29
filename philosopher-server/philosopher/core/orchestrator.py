@@ -136,11 +136,11 @@ class Orchestrator:
         await self._stream_response(toy_id, text, _t0)
 
     async def _send_sentence(self, toy_id: str, state: AgentState, sentence: str) -> str:
-        """Format one sentence and stream its text+servo to the toy.
+        """Format one sentence and stream it to the toy: text + servo + WAV.
 
-        Returns the formatted text so the caller can synthesize the whole
-        reply in ONE Piper call (one model load, not one per sentence).
-        Returns "" when formatting produced nothing.
+        Synthesizes per sentence so audio plays progressively as the reply is
+        generated; the resident Piper process (model loaded once) keeps each
+        call cheap. Returns the formatted text, or "" if it produced nothing.
         """
         state.llm_response = sentence
         await node_format(state, self.graph.ctx)
@@ -153,6 +153,10 @@ class Orchestrator:
         await self.ws_manager.send_json(toy_id, {
             "type": "servo", "emotion": state.emotion or "neutral",
         })
+        if self.tts and self.settings.tts.enabled:
+            audio_bytes = await self.tts.synthesize(formatted)
+            if audio_bytes:
+                await self.ws_manager.send_binary(toy_id, 0x03, audio_bytes)
         return formatted
 
     async def _send_fallback(self, toy_id: str) -> None:
@@ -194,7 +198,7 @@ class Orchestrator:
         formatted_parts: list[str] = []
         _t_llm = time.perf_counter()
         _t_first_tok = None
-        _t_first_text = None
+        _t_first_audio = None
         try:
             async for token in self.llm.chat_stream(
                 messages,
@@ -212,8 +216,8 @@ class Orchestrator:
                         fmt = await self._send_sentence(toy_id, state, sentence)
                         if fmt:
                             formatted_parts.append(fmt)
-                            if _t_first_text is None:
-                                _t_first_text = time.perf_counter()
+                            if _t_first_audio is None:
+                                _t_first_audio = time.perf_counter()
                     buffer = ""
             # Whatever is left in `buffer` has no sentence terminator: the LLM
             # was cut mid-sentence by max_tokens. Drop that truncated tail so we
@@ -224,8 +228,8 @@ class Orchestrator:
                 fmt = await self._send_sentence(toy_id, state, leftover)
                 if fmt:
                     formatted_parts.append(fmt)
-                    if _t_first_text is None:
-                        _t_first_text = time.perf_counter()
+                    if _t_first_audio is None:
+                        _t_first_audio = time.perf_counter()
         except Exception:
             pass  # stream failed mid-way; fall through to the empty/fallback check
 
@@ -234,26 +238,10 @@ class Orchestrator:
             await self._send_fallback(toy_id)
             return
 
-        # One-shot TTS: synthesize the whole reply in a SINGLE Piper call so the
-        # ~model-load cost (~3s on the RPi4) is paid once per reply, not once per
-        # sentence. Text already streamed to the toy sentence-by-sentence above.
-        _t_first_audio = None
-        if self.tts and self.settings.tts.enabled and formatted_parts:
-            speak = " ".join(formatted_parts)
-            _tt = time.perf_counter()
-            audio_bytes = await self.tts.synthesize(speak)
-            print(f"[TIMING] TTS={time.perf_counter() - _tt:.2f}s "
-                  f"({len(speak)} chars, 1 call)", flush=True)
-            if audio_bytes:
-                await self.ws_manager.send_binary(toy_id, 0x03, audio_bytes)
-                _t_first_audio = time.perf_counter()
-
         _ft = (_t_first_tok - _t_llm) if _t_first_tok else -1.0
-        _ftx = (_t_first_text - _t0) if (_t0 and _t_first_text) else -1.0
         _fa = (_t_first_audio - _t0) if (_t0 and _t_first_audio) else -1.0
         _lt = time.perf_counter() - _t_llm
         print(f"[TIMING] ctx={_ctx_dt:.2f}s LLM_first_tok={_ft:.2f}s "
-              f"FIRST_TEXT(desde speech_ended)={_ftx:.2f}s "
               f"FIRST_AUDIO(desde speech_ended)={_fa:.2f}s LLM_total={_lt:.2f}s", flush=True)
 
         # Store the full interaction once at the end.

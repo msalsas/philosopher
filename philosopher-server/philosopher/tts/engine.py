@@ -1,7 +1,16 @@
-"""Server-side TTS using Piper (invoked via subprocess)."""
+"""Server-side TTS using a persistent Piper process.
+
+Piper is spawned once in ``--json-input`` mode and left running: the ~1.3s
+voice-model load is paid a single time, then each sentence synthesizes in
+~1.2s instead of re-loading the ~28MB model on every call (the old
+subprocess-per-sentence path cost ~3-4s each on the RPi4). Piper prints the
+finished WAV's path on stdout, one line per input line — that line is the
+completion signal we wait on.
+"""
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -10,9 +19,13 @@ from pathlib import Path
 # "es_ES-carlfm-x_low" maps to the path "es/es_ES/carlfm/x_low/<voice>.onnx".
 _PIPER_VOICES_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 
+# Cap on how long a single synthesis may take before we give up and restart the
+# resident process (a wedged piper must never hang the reply path forever).
+_SYNTH_TIMEOUT = 30.0
+
 
 class PiperTTS:
-    """Synthesizes speech using Piper via subprocess."""
+    """Synthesizes speech with a resident Piper process (model loaded once)."""
 
     def __init__(self, model_path: str = "", voice: str = "es_ES-carlfm-x_low", mock: bool = False):
         self.voice = voice
@@ -21,6 +34,11 @@ class PiperTTS:
         self.model_path = model_path or self._default_model_path(voice)
         if not model_path and not mock:
             self._download_model(voice)
+        # Resident piper process + its output dir. Started lazily on first use;
+        # a lock serialises access (one stdin/stdout, one synth at a time).
+        self._proc: asyncio.subprocess.Process | None = None
+        self._outdir: str | None = None
+        self._lock = asyncio.Lock()
 
     @staticmethod
     def _default_model_path(voice: str) -> str:
@@ -54,6 +72,10 @@ class PiperTTS:
         except Exception:
             pass
 
+    @property
+    def _config_path(self) -> str:
+        return self.model_path.replace(".onnx", ".onnx.json")
+
     def status(self) -> dict:
         """Engine readiness for /health: is piper on PATH and the voice present?"""
         if self.mock:
@@ -69,36 +91,68 @@ class PiperTTS:
             "piper_binary": bool(binary), "voice_model": model_ok,
         }
 
+    async def _ensure_proc(self) -> bool:
+        """Ensure the resident piper is running. Returns False if it can't start."""
+        if self._proc is not None and self._proc.returncode is None:
+            return True
+        if self._outdir is None:
+            self._outdir = tempfile.mkdtemp(prefix="piper_")
+        try:
+            self._proc = await asyncio.create_subprocess_exec(
+                "piper",
+                "--model", self.model_path,
+                "--config", self._config_path,
+                "--json-input",
+                "--output_dir", self._outdir,
+                "--quiet",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            return True
+        except (FileNotFoundError, OSError):
+            self._proc = None
+            return False
+
+    async def _kill_proc(self) -> None:
+        if self._proc is not None:
+            try:
+                self._proc.kill()
+                await self._proc.wait()
+            except (ProcessLookupError, OSError):
+                pass
+            self._proc = None
+
     async def synthesize(self, text: str) -> bytes:
         if self.mock:
             return b"RIFF\x00\x00\x00\x00WAVEfmt " + b"\x00" * 40
-
-        config_path = self.model_path.replace(".onnx", ".onnx.json")
-
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            output_path = f.name
-
-        try:
-            # Non-blocking: subprocess.run() would freeze the asyncio event loop
-            # for the whole synthesis (~seconds on the RPi4), stalling the LLM
-            # stream and every other WS handler. create_subprocess_exec yields.
-            proc = await asyncio.create_subprocess_exec(
-                "piper",
-                "--model", self.model_path,
-                "--config", config_path,
-                "--output_file", output_path,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.communicate(input=text.encode())
-            if proc.returncode != 0:
-                return b""
-            return Path(output_path).read_bytes()
-        except (FileNotFoundError, OSError):
-            # piper binary missing, model/config missing, or synthesis failed.
+        # Piper reads one JSON object per line, so the text must be single-line.
+        text = " ".join(text.split())
+        if not text:
             return b""
-        finally:
-            p = Path(output_path)
-            if p.exists():
-                p.unlink()
+        async with self._lock:
+            for _attempt in (1, 2):  # one retry if the resident process died
+                if not await self._ensure_proc():
+                    return b""
+                try:
+                    self._proc.stdin.write((json.dumps({"text": text}) + "\n").encode())
+                    await self._proc.stdin.drain()
+                    # One input line -> one WAV; piper prints its path when done.
+                    out = await asyncio.wait_for(
+                        self._proc.stdout.readline(), timeout=_SYNTH_TIMEOUT
+                    )
+                    path = out.decode().strip()
+                    if not path:  # EOF: the process died — restart and retry once
+                        await self._kill_proc()
+                        continue
+                    data = Path(path).read_bytes()
+                    Path(path).unlink(missing_ok=True)
+                    return data
+                except (asyncio.TimeoutError, BrokenPipeError, ConnectionResetError, OSError):
+                    await self._kill_proc()
+                    continue
+            return b""
+
+    async def close(self) -> None:
+        """Stop the resident piper process (call on shutdown)."""
+        await self._kill_proc()
