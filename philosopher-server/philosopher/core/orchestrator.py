@@ -215,8 +215,13 @@ class Orchestrator:
                             if _t_first_text is None:
                                 _t_first_text = time.perf_counter()
                     buffer = ""
-            if buffer.strip():
-                fmt = await self._send_sentence(toy_id, state, buffer.strip())
+            # Whatever is left in `buffer` has no sentence terminator: the LLM
+            # was cut mid-sentence by max_tokens. Drop that truncated tail so we
+            # never speak half a sentence -- UNLESS it is the whole reply (no
+            # complete sentence emitted yet), where speaking it beats silence.
+            leftover = buffer.strip()
+            if leftover and not formatted_parts:
+                fmt = await self._send_sentence(toy_id, state, leftover)
                 if fmt:
                     formatted_parts.append(fmt)
                     if _t_first_text is None:
