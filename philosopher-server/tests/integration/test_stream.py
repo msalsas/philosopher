@@ -60,8 +60,9 @@ async def test_stream_response_end_to_end(tmp_path, monkeypatch):
         assert len(texts) == 2
         assert all(m["content"] for m in texts)
         assert len(servos) == 2
-        # Mock Piper returns a RIFF/WAV blob per sentence.
-        assert len(ws.binary) == 2
+        # One-shot TTS: text/servo stream per sentence, but the whole reply is
+        # synthesized in a single Piper call -> exactly one WAV blob.
+        assert len(ws.binary) == 1
         assert all(p.startswith(b"RIFF") for _ft, p in ws.binary)
 
         # The full interaction must have been persisted.

@@ -1,7 +1,7 @@
 """Server-side TTS using Piper (invoked via subprocess)."""
 from __future__ import annotations
 
-import subprocess
+import asyncio
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -79,19 +79,23 @@ class PiperTTS:
             output_path = f.name
 
         try:
-            subprocess.run(
-                [
-                    "piper",
-                    "--model", self.model_path,
-                    "--config", config_path,
-                    "--output_file", output_path,
-                ],
-                input=text.encode(),
-                check=True,
-                capture_output=True,
+            # Non-blocking: subprocess.run() would freeze the asyncio event loop
+            # for the whole synthesis (~seconds on the RPi4), stalling the LLM
+            # stream and every other WS handler. create_subprocess_exec yields.
+            proc = await asyncio.create_subprocess_exec(
+                "piper",
+                "--model", self.model_path,
+                "--config", config_path,
+                "--output_file", output_path,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            await proc.communicate(input=text.encode())
+            if proc.returncode != 0:
+                return b""
             return Path(output_path).read_bytes()
-        except (FileNotFoundError, subprocess.CalledProcessError, OSError):
+        except (FileNotFoundError, OSError):
             # piper binary missing, model/config missing, or synthesis failed.
             return b""
         finally:
