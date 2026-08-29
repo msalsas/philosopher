@@ -10,10 +10,14 @@ completion signal we wait on.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import tempfile
 import urllib.request
+import wave
 from pathlib import Path
+
+import numpy as np
 
 # Piper voices are hosted on HuggingFace (rhasspy/piper-voices). A voice id like
 # "es_ES-carlfm-x_low" maps to the path "es/es_ES/carlfm/x_low/<voice>.onnx".
@@ -27,9 +31,15 @@ _SYNTH_TIMEOUT = 30.0
 class PiperTTS:
     """Synthesizes speech with a resident Piper process (model loaded once)."""
 
-    def __init__(self, model_path: str = "", voice: str = "es_ES-carlfm-x_low", mock: bool = False):
+    def __init__(self, model_path: str = "", voice: str = "es_ES-carlfm-x_low",
+                 length_scale: float = 1.0, noise_scale: float = 0.667,
+                 noise_w: float = 0.8, pitch: float = 1.0, mock: bool = False):
         self.voice = voice
         self.mock = mock
+        self._length_scale = length_scale
+        self._noise_scale = noise_scale
+        self._noise_w = noise_w
+        self._pitch = pitch
         # Always resolve a deterministic model path; only fetch when needed.
         self.model_path = model_path or self._default_model_path(voice)
         if not model_path and not mock:
@@ -104,6 +114,9 @@ class PiperTTS:
                 "--config", self._config_path,
                 "--json-input",
                 "--output_dir", self._outdir,
+                "--length_scale", str(self._length_scale),
+                "--noise_scale", str(self._noise_scale),
+                "--noise_w", str(self._noise_w),
                 "--quiet",
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
@@ -147,11 +160,34 @@ class PiperTTS:
                         continue
                     data = Path(path).read_bytes()
                     Path(path).unlink(missing_ok=True)
-                    return data
+                    return self._apply_pitch(data)
                 except (asyncio.TimeoutError, BrokenPipeError, ConnectionResetError, OSError):
                     await self._kill_proc()
                     continue
             return b""
+
+    def _apply_pitch(self, wav_bytes: bytes) -> bytes:
+        """Deepen (or raise) the voice by resampling: pitch<1 lowers pitch AND
+        formants for a bigger, plush-animal timbre. length_scale on synthesis
+        compensates the pace, so this only shifts pitch, not speed. Piper output
+        is mono 16-bit; returns the input unchanged when pitch == 1.0."""
+        if self._pitch == 1.0 or not wav_bytes:
+            return wav_bytes
+        try:
+            with wave.open(io.BytesIO(wav_bytes), "rb") as w:
+                nch, sr, n = w.getnchannels(), w.getframerate(), w.getnframes()
+                data = np.frombuffer(w.readframes(n), dtype=np.int16).astype(np.float32)
+            idx = np.linspace(0, len(data) - 1, int(len(data) / self._pitch))
+            res = np.interp(idx, np.arange(len(data)), data).astype(np.int16)
+            out = io.BytesIO()
+            with wave.open(out, "wb") as w:
+                w.setnchannels(nch)
+                w.setsampwidth(2)
+                w.setframerate(sr)
+                w.writeframes(res.tobytes())
+            return out.getvalue()
+        except (wave.Error, ValueError):
+            return wav_bytes  # on any parse issue, ship the original audio
 
     async def close(self) -> None:
         """Stop the resident piper process (call on shutdown)."""

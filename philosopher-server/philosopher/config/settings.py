@@ -98,6 +98,15 @@ class TTSSettings(BaseSettings):
     model_path: str = ""
     voice: str = "es_ES-carlfm-x_low"
     enabled: bool = True
+    # Piper synthesis params (defaults = piper's own defaults). Higher
+    # noise_scale = livelier pitch, higher noise_w = livelier rhythm,
+    # length_scale <1 = faster speech.
+    length_scale: float = 1.0
+    noise_scale: float = 0.667
+    noise_w: float = 0.8
+    # Post pitch/formant shift on the output WAV. 1.0 = none; <1 = deeper
+    # (lower pitch AND formants -> a bigger, plush-animal voice).
+    pitch: float = 1.0
 
 
 class Settings(BaseSettings):

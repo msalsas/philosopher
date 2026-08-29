@@ -90,6 +90,10 @@ def main():
         orch.tts = PiperTTS(
             model_path=settings.tts.model_path,
             voice=settings.tts.voice,
+            length_scale=settings.tts.length_scale,
+            noise_scale=settings.tts.noise_scale,
+            noise_w=settings.tts.noise_w,
+            pitch=settings.tts.pitch,
             mock=mock,
         )
 
