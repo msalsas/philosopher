@@ -4,6 +4,7 @@
 Downloads (idempotently):
   - FER+ emotion ONNX model  (vision/emotion.py)
   - Piper TTS voice           (tts/engine.py, voice from settings/.env)
+  - Kokoro TTS model          (tts/kokoro_engine.py, only if provider=kokoro)
   - faster-whisper STT model  (stt/engine.py, model size from settings/.env)
 
 Each step is independent: a failure in one is reported and the others still run.
@@ -20,6 +21,10 @@ from pathlib import Path
 # Single source of truth — reuse the constants/classes the runtime uses.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from philosopher.vision.emotion import _DEFAULT_MODEL_PATH, _MODEL_URL  # noqa: E402
+
+_KOKORO_BASE = (
+    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+)
 
 
 def _download(url: str, dest: str) -> bool:
@@ -74,8 +79,20 @@ def fetch_whisper() -> bool:
         return False
 
 
+def fetch_kokoro() -> bool:
+    from philosopher.config.settings import get_settings
+    if get_settings().tts.provider != "kokoro":
+        print("== Kokoro TTS model (skipped; provider != kokoro) ==")
+        return True
+    print("== Kokoro TTS model ==")
+    d = "./data/kokoro"
+    ok1 = _download(f"{_KOKORO_BASE}/kokoro-v1.0.onnx", f"{d}/kokoro-v1.0.onnx")
+    ok2 = _download(f"{_KOKORO_BASE}/voices-v1.0.bin", f"{d}/voices-v1.0.bin")
+    return ok1 and ok2
+
+
 def main() -> int:
-    results = [fetch_emotion(), fetch_piper(), fetch_whisper()]
+    results = [fetch_emotion(), fetch_piper(), fetch_whisper(), fetch_kokoro()]
     return 0 if all(results) else 1
 
 

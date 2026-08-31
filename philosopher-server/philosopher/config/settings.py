@@ -98,6 +98,15 @@ class TTSSettings(BaseSettings):
     model_path: str = ""
     voice: str = "es_ES-carlfm-x_low"
     enabled: bool = True
+    # "piper" (local, offline) or "edge" (Microsoft neural voices, needs
+    # internet + ffmpeg -- far more natural). Piper stays the offline fallback.
+    provider: str = "piper"
+    # edge-tts prosody (used only when provider="edge").
+    rate: str = "+0%"
+    pitch_hz: str = "+0Hz"
+    # kokoro params (used only when provider="kokoro").
+    lang: str = "es"
+    speed: float = 1.0
     # Piper synthesis params (defaults = piper's own defaults). Higher
     # noise_scale = livelier pitch, higher noise_w = livelier rhythm,
     # length_scale <1 = faster speech.

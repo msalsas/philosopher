@@ -8,7 +8,9 @@ import os
 from philosopher.config.settings import get_settings
 from philosopher.core.orchestrator import Orchestrator
 from philosopher.stt.engine import StreamingSTT
+from philosopher.tts.edge_engine import EdgeTTS
 from philosopher.tts.engine import PiperTTS
+from philosopher.tts.kokoro_engine import KokoroTTS
 from philosopher.utils.logger import configure
 from philosopher.vision.engine import VisionProcessor
 
@@ -87,15 +89,32 @@ def main():
         )
         # Let the name-registration node reach vision for biometric dedup.
         orch.graph.ctx.vision = orch.vision
-        orch.tts = PiperTTS(
-            model_path=settings.tts.model_path,
-            voice=settings.tts.voice,
-            length_scale=settings.tts.length_scale,
-            noise_scale=settings.tts.noise_scale,
-            noise_w=settings.tts.noise_w,
-            pitch=settings.tts.pitch,
-            mock=mock,
-        )
+        if settings.tts.provider == "edge":
+            orch.tts = EdgeTTS(
+                voice=settings.tts.voice,
+                rate=settings.tts.rate,
+                pitch_hz=settings.tts.pitch_hz,
+                pitch=settings.tts.pitch,
+                mock=mock,
+            )
+        elif settings.tts.provider == "kokoro":
+            orch.tts = KokoroTTS(
+                voice=settings.tts.voice,
+                lang=settings.tts.lang,
+                speed=settings.tts.speed,
+                pitch=settings.tts.pitch,
+                mock=mock,
+            )
+        else:
+            orch.tts = PiperTTS(
+                model_path=settings.tts.model_path,
+                voice=settings.tts.voice,
+                length_scale=settings.tts.length_scale,
+                noise_scale=settings.tts.noise_scale,
+                noise_w=settings.tts.noise_w,
+                pitch=settings.tts.pitch,
+                mock=mock,
+            )
 
         if args.server:
             await orch.run()
