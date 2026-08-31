@@ -60,9 +60,20 @@ settings in a `.env` beside each subproject (also git-ignored).
 ### 1. System packages
 ```bash
 sudo apt update
+# Server (brain): build tools for dlib + BLAS/JPEG.
 sudo apt install -y python3-venv python3-pip cmake build-essential \
                     libopenblas-dev liblapack-dev libjpeg-dev libatlas-base-dev
+# System binaries the code shells out to (not pip packages):
+#   alsa-utils  -> arecord/aplay/amixer (toy audio + speaker volume)
+#   rpicam-apps -> rpicam-still (toy CSI camera; usually preinstalled on RPi OS)
+#   espeak-ng   -> only for the kokoro TTS provider (phonemizer)
+#   ffmpeg      -> only for the edge TTS provider (mp3 -> wav)
+sudo apt install -y alsa-utils rpicam-apps espeak-ng ffmpeg
 ```
+The `piper` binary is installed separately (see the Piper download below). Which
+TTS extras/system deps you need depends on `PHILOSOPHER_TTS_PROVIDER`
+(piper=default/offline, kokoro=local neural, edge=online); install the matching
+pip extra: `pip install -e ".[tts-kokoro]"` or `".[tts-edge]"`.
 
 ### 2. dlib / face_recognition (the ARM64 gotcha)
 There is **no PyPI ARM64 wheel** for dlib. On **Raspberry Pi OS Bookworm (Python

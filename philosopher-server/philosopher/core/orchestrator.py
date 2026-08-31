@@ -1,6 +1,7 @@
 """Main orchestrator that coordinates all server modules."""
 from __future__ import annotations
 
+import os
 import signal
 import time
 from typing import Any
@@ -22,6 +23,9 @@ from philosopher.events.session_tracker import SessionTracker
 from philosopher.llm.client import LLMClient
 from philosopher.memory.manager import MemoryManager
 from philosopher.personality.engine import PersonalityEngine
+
+# Per-turn latency profiling to stdout; off unless PHILOSOPHER_TIMING=1.
+_TIMING = os.getenv("PHILOSOPHER_TIMING") == "1"
 
 
 class Orchestrator:
@@ -112,7 +116,8 @@ class Orchestrator:
         result = await self.stt.transcribe(
             toy_id, confidence_threshold=self.settings.stt.confidence_threshold,
         )
-        print(f"[TIMING] STT={time.perf_counter() - _t0:.2f}s", flush=True)
+        if _TIMING:
+            print(f"[TIMING] STT={time.perf_counter() - _t0:.2f}s", flush=True)
 
         # Either "couldn't transcribe" case -- low confidence OR empty text --
         # must send SOMETHING back, including a WAV, so the toy releases its
@@ -245,8 +250,9 @@ class Orchestrator:
         _ft = (_t_first_tok - _t_llm) if _t_first_tok else -1.0
         _fa = (_t_first_audio - _t0) if (_t0 and _t_first_audio) else -1.0
         _lt = time.perf_counter() - _t_llm
-        print(f"[TIMING] ctx={_ctx_dt:.2f}s LLM_first_tok={_ft:.2f}s "
-              f"FIRST_AUDIO(desde speech_ended)={_fa:.2f}s LLM_total={_lt:.2f}s", flush=True)
+        if _TIMING:
+            print(f"[TIMING] ctx={_ctx_dt:.2f}s LLM_first_tok={_ft:.2f}s "
+                  f"FIRST_AUDIO(desde speech_ended)={_fa:.2f}s LLM_total={_lt:.2f}s", flush=True)
 
         # Store the full interaction once at the end.
         state.llm_response = full_response
