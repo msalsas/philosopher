@@ -85,7 +85,17 @@ class EmotionClassifier:
         if not self._ensure_session():
             return None
         try:
-            gray = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2GRAY)
+            # Normalize the colour cast (gray-world white balance) then boost
+            # local contrast (CLAHE): the cheap CSI sensor's strong tint (e.g.
+            # a purple cast under mixed/LED light) otherwise washes out the
+            # expression in grayscale and everything reads "neutral". Verified:
+            # a clearly smiling but purple-tinted face flips neutral -> happy.
+            f = face_bgr.astype(np.float32)
+            chan_avg = f.reshape(-1, 3).mean(axis=0)
+            chan_avg[chan_avg == 0] = 1.0
+            f = np.clip(f * (chan_avg.mean() / chan_avg), 0, 255).astype(np.uint8)
+            gray = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+            gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
             resized = cv2.resize(gray, (64, 64), interpolation=cv2.INTER_AREA)
             tensor = resized.astype(np.float32).reshape(1, 1, 64, 64)
             logits = self._session.run(None, {self._input_name: tensor})[0][0]
