@@ -11,11 +11,12 @@ license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
     "aiohttp>=3.9.0",
-    "numpy>=1.26.0",
-    "opencv-python-headless>=4.9.0",  # headless: Banana Pi has no display, avoids the libGL dep
+    "numpy>=1.26.0",  # audio VAD energy/gain in capture.py
     "python-dotenv>=1.0.0",
-    # Audio I/O is done via the `arecord`/`aplay` binaries (alsa-utils), not a
-    # Python lib — PyAudio's device enumeration hangs the 512 MB Banana Pi.
+    # Audio I/O is done via the `arecord`/`aplay` binaries (alsa-utils), and the
+    # CSI camera via the `rpicam-still` binary (libcamera) — not Python libs.
+    # PyAudio hangs the 512MB board, and on modern RPi OS cv2.VideoCapture can't
+    # read the libcamera CSI stream, so both stay as lightweight subprocesses.
 ]
 
 [project.optional-dependencies]
