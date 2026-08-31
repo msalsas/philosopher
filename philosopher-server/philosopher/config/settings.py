@@ -13,8 +13,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class LLMSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PHILOSOPHER_LLM_")
     provider: Literal["local", "openai", "ollama", "custom"] = "local"
-    base_url: str = "http://localhost:1234/v1"
-    api_key: str = "lm-studio"
+    base_url: str = "http://localhost:1234/v1"  # any OpenAI-compatible server (Ollama/llama.cpp/vLLM/LM Studio/OpenAI)
+    api_key: str = "not-needed"  # placeholder for local servers; set your real key only for OpenAI
     model: str = "llama-3.1-8b"
     max_tokens: int = 4096
     temperature: float = 0.7
