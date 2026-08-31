@@ -9,8 +9,8 @@ servos. It connects to `ws://<server>:<port>/ws?toy_id=<id>`.
 ```bash
 pip install -e ".[dev]"
 export PHILOSOPHER_SERVER_URL=ws://<server-ip>:8080   # base URL only; client appends /ws?toy_id=
-python -m banana_client.main
-PHILOSOPHER_MOCK=true python -m banana_client.main     # no hardware needed
+python -m toy_client.main
+PHILOSOPHER_MOCK=true python -m toy_client.main     # no hardware needed
 ```
 
 **Full docs — architecture, the WebSocket protocol, body-language/servo behavior,

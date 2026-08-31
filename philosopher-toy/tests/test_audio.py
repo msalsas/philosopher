@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from banana_client.audio.capture import MicrophoneCapture
-from banana_client.audio.player import AudioPlayer
+from toy_client.audio.capture import MicrophoneCapture
+from toy_client.audio.player import AudioPlayer
 
 
 class TestMicrophoneCapture:
@@ -49,14 +49,14 @@ class TestMicrophoneCapture:
 
 class TestAudioPlayer:
     def test_init_ready_when_aplay_present(self, monkeypatch):
-        import banana_client.audio.player as player_mod
+        import toy_client.audio.player as player_mod
         monkeypatch.setattr(player_mod.shutil, "which", lambda _: "/usr/bin/aplay")
         player = AudioPlayer()
         player.init()
         assert player._ready and not player.mock
 
     def test_init_degrades_without_aplay(self, monkeypatch):
-        import banana_client.audio.player as player_mod
+        import toy_client.audio.player as player_mod
         monkeypatch.setattr(player_mod.shutil, "which", lambda _: None)
         player = AudioPlayer()
         player.init()
@@ -74,7 +74,7 @@ class TestAudioPlayer:
 class TestMicrophoneDegrade:
     @pytest.mark.asyncio
     async def test_mic_degrades_without_arecord(self, monkeypatch):
-        import banana_client.audio.capture as cap_mod
+        import toy_client.audio.capture as cap_mod
         monkeypatch.setattr(cap_mod.shutil, "which", lambda _: None)
         cap = MicrophoneCapture()
         await cap.init()

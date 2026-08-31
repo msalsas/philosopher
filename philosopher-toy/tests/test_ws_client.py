@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from banana_client.protocol.ws_client import ToyWebSocketClient
+from toy_client.protocol.ws_client import ToyWebSocketClient
 
 
 def test_creation():

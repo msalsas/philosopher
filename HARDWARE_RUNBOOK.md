@@ -276,8 +276,8 @@ pip install -e . --no-deps                        # don't re-pull heavy deps fro
 pip install python-dotenv pytest pytest-asyncio pytest-mock
 # Point it at the server (base URL only — client appends /ws?toy_id=… itself):
 echo "PHILOSOPHER_SERVER_URL=ws://<pi-ip>:8080" > .env   # .env is loaded (python-dotenv)
-echo "PHILOSOPHER_TOY_ID=banana_01" >> .env
-PHILOSOPHER_MOCK=true python -m banana_client.main        # prove the client loop first
+echo "PHILOSOPHER_TOY_ID=toy_01" >> .env
+PHILOSOPHER_MOCK=true python -m toy_client.main        # prove the client loop first
 ```
 
 ### B.3 Audio — ⚠️ UNVERIFIED on hardware
@@ -403,7 +403,7 @@ the fallback only if the overlay fights us.
    (distinct from the cedrus `video0`). `v4l2-ctl -d /dev/video1 --list-formats-ext` shows
    sensor formats (e.g. UYVY/RGB), not the cedrus decode formats.
 4. Run the `media-ctl --set-v4l2` format command above, then drop the mock in
-   `banana_client/vision/camera.py` and point it at **`/dev/video1`** (currently it V4L2-opens
+   `toy_client/vision/camera.py` and point it at **`/dev/video1`** (currently it V4L2-opens
    index 0 → the cedrus; needs index 1 / `/dev/video1`, plus running the media-ctl init first).
 ⚠️ Re-enable the USB serial console first (a bad overlay can break boot — same caveat as B.4.1).
 

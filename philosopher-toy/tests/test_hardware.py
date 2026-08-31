@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from banana_client.hardware.servos import ServoController
+from toy_client.hardware.servos import ServoController
 
 
 @pytest.mark.asyncio

@@ -620,14 +620,14 @@ async def _run():
 
 ### 4.1 Replace Protocol
 
-Create `banana_client/protocol/ws_client.py`:
+Create `toy_client/protocol/ws_client.py`:
 ```python
 """WebSocket client for toy-server communication."""
 import aiohttp
 import json
 
 class ToyWebSocketClient:
-    def __init__(self, server_url: str, toy_id: str = "banana_01", reconnect_interval=5.0, max_reconnect=10):
+    def __init__(self, server_url: str, toy_id: str = "toy_01", reconnect_interval=5.0, max_reconnect=10):
         self.url = server_url
         self.toy_id = toy_id
         self.reconnect_interval = reconnect_interval
@@ -687,7 +687,7 @@ class ToyWebSocketClient:
 
 ### 4.2 Replace TTS with Audio Player
 
-Create `banana_client/audio/player.py`:
+Create `toy_client/audio/player.py`:
 ```python
 """WAV audio player using PyAudio."""
 import pyaudio
@@ -756,7 +756,7 @@ class AudioPlayer:
 
 ### 4.3 Add Microphone Capture with VAD
 
-Create `banana_client/audio/capture.py`:
+Create `toy_client/audio/capture.py`:
 ```python
 """USB microphone capture with energy-based VAD."""
 import pyaudio
@@ -841,7 +841,7 @@ class MicrophoneCapture:
 
 ### 4.4 Simplify Camera
 
-Edit `banana_client/vision/camera.py`:
+Edit `toy_client/vision/camera.py`:
 ```python
 """Simplified camera: capture only, no processing. Configurable FPS with rounding."""
 import cv2
@@ -893,7 +893,7 @@ class Camera:
 
 ### 4.5 Modify Servos for Sequential Movement
 
-Edit `banana_client/hardware/servos.py`:
+Edit `toy_client/hardware/servos.py`:
 ```python
 """Sequential servo controller with power safety."""
 import asyncio
@@ -981,20 +981,20 @@ class ServoController:
 
 ### 4.6 Rewrite Toy Main Loop
 
-Edit `banana_client/main.py`:
+Edit `toy_client/main.py`:
 ```python
 import asyncio
 import os
-from banana_client.protocol.ws_client import ToyWebSocketClient
-from banana_client.audio.capture import MicrophoneCapture
-from banana_client.audio.player import AudioPlayer
-from banana_client.vision.camera import Camera
-from banana_client.hardware.servos import ServoController
+from toy_client.protocol.ws_client import ToyWebSocketClient
+from toy_client.audio.capture import MicrophoneCapture
+from toy_client.audio.player import AudioPlayer
+from toy_client.vision.camera import Camera
+from toy_client.hardware.servos import ServoController
 
 class Toy:
     def __init__(self):
         self.server_url = os.getenv("PHILOSOPHER_SERVER_URL", "ws://localhost:8080")
-        self.toy_id = os.getenv("PHILOSOPHER_TOY_ID", "banana_01")
+        self.toy_id = os.getenv("PHILOSOPHER_TOY_ID", "toy_01")
         self.mock = os.getenv("PHILOSOPHER_MOCK", "false").lower() == "true"
 
     async def init(self):
@@ -1205,7 +1205,7 @@ MOCK_MODE=false
 ### Toy `.env`
 ```bash
 PHILOSOPHER_SERVER_URL=ws://192.168.1.50:8080/ws
-PHILOSOPHER_TOY_ID=banana_01
+PHILOSOPHER_TOY_ID=toy_01
 PHILOSOPHER_MOCK=false
 
 # Configurable quality

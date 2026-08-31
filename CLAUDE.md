@@ -55,8 +55,8 @@ ruff check .                            # lint (line-length 100, py310; rules: E
 
 # Toy (the body — Raspberry Pi Zero WH)
 cd philosopher-toy && pip install -e ".[dev]"
-python -m banana_client.main
-PHILOSOPHER_MOCK=true python -m banana_client.main   # no hardware needed
+python -m toy_client.main
+PHILOSOPHER_MOCK=true python -m toy_client.main   # no hardware needed
 pytest tests/ -v
 ```
 
@@ -117,7 +117,7 @@ ARM64 install notes (full bring-up sequence in `HARDWARE_RUNBOOK.md`):
 
 Roadmap-y gaps that the code itself won't tell you (absence isn't self-documenting):
 - **No wake word.** The toy listens continuously via energy VAD — no "Hey Philosopher" hotword. It transcribes any speech at `speech_ended`; there's no explicit "talk to me now" trigger (`WAKE_UP` is an event type, not hotword detection).
-- **No LEDs yet.** `banana_client/hardware/leds.py` does not exist; servos (head + arms) are the only expressive output.
+- **No LEDs yet.** `toy_client/hardware/leds.py` does not exist; servos (head + arms) are the only expressive output.
 - **Name capture is crude.** `background_extract_name` only pulls a name from a 1–3 word reply (last token); longer self-introductions ("soy Pedro, ya me conoces") aren't parsed. The biometric dedup band (`merge_band`) still needs tuning on real hardware.
 - **One speaker per turn.** The spoken turn is attributed to the dominant face at `speech_ended` — no voice diarization.
 - **Keyword memory, no embeddings** — by design for the RAM budget (overlap + recency, not semantic). Revisit `sentence-transformers` only if a bigger host makes the RAM cost acceptable.
@@ -129,7 +129,7 @@ files and subproject `README.md`s are stubs that point here).
 
 ### Module map
 **Server (`philosopher-server/philosopher/`)** — `config/` (Pydantic settings + `personalities/<lang>/*.yaml`), `core/` (`state·nodes·graph·orchestrator` — the LangGraph pipeline + WS streaming path), `llm/` (OpenAI-compatible async client), `memory/` (`short_term·long_term·manager`), `personality/` (YAML loader + prompt builder + formatter), `stt/` · `vision/` (+`emotion.py`) · `tts/` (the server-side AI engines), `api/` (`app.py` HTTP + `ws_server.py` WebSocket), `events/` (`bus·session_tracker·dashboard`), `utils/`.
-**Toy (`philosopher-toy/banana_client/`)** — `protocol/ws_client.py` (heartbeat + auto-reconnect), `vision/camera.py` (capture + JPEG encode only), `audio/` (`capture.py` mic+VAD, `player.py` WAV playback), `hardware/servos.py` (head=GPIO12, arms=GPIO13/18, sequential moves). **Pi Zero WH bring-up + gotchas: `HARDWARE_RUNBOOK.md` §B** (the body is only partly verified on real hardware): OTG gadget↔host, armhf install, audio backend. **Audio I/O uses the `arecord`/`aplay` binaries (not PyAudio, which pegs the CPU enumerating devices on the 512MB board) — verified working end-to-end on the Pi Zero WH (the toy converses).** Speaker volume is set from `PHILOSOPHER_SPEAKER_VOLUME` via `amixer` at startup. Mic tuning env: `PHILOSOPHER_MIC_GAIN` / `PHILOSOPHER_VAD_THRESHOLD` / `PHILOSOPHER_MIC_DEBUG` / `PHILOSOPHER_{MIC,SPEAKER}_ALSA_DEVICE`. Camera is the **OV5647 MIPI CSI** on the Pi Zero WH — it **works** (`camera_auto_detect=0` + `dtoverlay=ov5647` in config.txt; a reversed ribbon at the board end gives `i2c ... -5`/`probe failed`). `camera.py` grabs each JPEG via the **`rpicam-still`** binary (cv2.VideoCapture can't read the libcamera CSI stream), no OpenCV on the toy. Servos are the only part still mocked/unwired (RPi.GPIO PWM, not yet ported/connected).
+**Toy (`philosopher-toy/toy_client/`)** — `protocol/ws_client.py` (heartbeat + auto-reconnect), `vision/camera.py` (capture + JPEG encode only), `audio/` (`capture.py` mic+VAD, `player.py` WAV playback), `hardware/servos.py` (head=GPIO12, arms=GPIO13/18, sequential moves). **Pi Zero WH bring-up + gotchas: `HARDWARE_RUNBOOK.md` §B** (the body is only partly verified on real hardware): OTG gadget↔host, armhf install, audio backend. **Audio I/O uses the `arecord`/`aplay` binaries (not PyAudio, which pegs the CPU enumerating devices on the 512MB board) — verified working end-to-end on the Pi Zero WH (the toy converses).** Speaker volume is set from `PHILOSOPHER_SPEAKER_VOLUME` via `amixer` at startup. Mic tuning env: `PHILOSOPHER_MIC_GAIN` / `PHILOSOPHER_VAD_THRESHOLD` / `PHILOSOPHER_MIC_DEBUG` / `PHILOSOPHER_{MIC,SPEAKER}_ALSA_DEVICE`. Camera is the **OV5647 MIPI CSI** on the Pi Zero WH — it **works** (`camera_auto_detect=0` + `dtoverlay=ov5647` in config.txt; a reversed ribbon at the board end gives `i2c ... -5`/`probe failed`). `camera.py` grabs each JPEG via the **`rpicam-still`** binary (cv2.VideoCapture can't read the libcamera CSI stream), no OpenCV on the toy. Servos are the only part still mocked/unwired (RPi.GPIO PWM, not yet ported/connected).
 
 ### HTTP API endpoints (`api/app.py`)
 | Method | Path | Notes |
@@ -157,7 +157,7 @@ Top-level keys: `name, role, language, description, system_prompt, traits{empath
 #   PERSONALITY, LANGUAGE, MEMORY_DB_PATH, API_HOST=0.0.0.0, API_PORT=8080,
 #   STT_MODEL/DEVICE/COMPUTE_TYPE, CAMERA_FPS/QUALITY/DETECT_WIDTH/PRESENCE_GATE/MERGE_BAND, TTS_VOICE
 # Toy: PHILOSOPHER_SERVER_URL=ws://<server-ip>:8080  (base only; client appends /ws?toy_id=)
-#      PHILOSOPHER_TOY_ID=banana_01, PHILOSOPHER_CAMERA_FPS=0.5, PHILOSOPHER_MOCK=false
+#      PHILOSOPHER_TOY_ID=toy_01, PHILOSOPHER_CAMERA_FPS=0.5, PHILOSOPHER_MOCK=false
 ```
 
 ### Data-flow trace (WebSocket, the real path)
@@ -172,7 +172,7 @@ Server: vision decodes JPEG → face id + emotion → {look}/{servo} back immedi
 
 ## Doc map — what's authoritative
 
-1. **Source code** (`philosopher/`, `banana_client/`) — ground truth.
+1. **Source code** (`philosopher/`, `toy_client/`) — ground truth.
 2. **`MIGRATION_GUIDE.md`** — authoritative v2 design (explicitly overrides `REWRITE_PROMPT.md`).
 3. **This `CLAUDE.md`** — the canonical, up-to-date guide (quick reference + the Reference section above). The root `AGENTS.md` and each subproject `README.md`/`AGENTS.md` are **stubs that point here**.
 4. **`HARDWARE_RUNBOOK.md`** — v2 bring-up on real devices (RPi4 + Pi Zero WH): dlib/piper/model setup, `check_runtime_deps.py`, and an end-to-end smoke checklist with per-step triage.

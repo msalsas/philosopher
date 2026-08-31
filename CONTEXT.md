@@ -234,7 +234,7 @@ philosopher-toy/
 ├── pyproject.toml
 ├── .env.example
 ├── README.md
-├── banana_client/
+├── toy_client/
 │   ├── __init__.py
 │   ├── main.py
 │   ├── protocol/

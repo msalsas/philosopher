@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from banana_client.vision.camera import Camera
+from toy_client.vision.camera import Camera
 
 
 class TestCameraFPS:

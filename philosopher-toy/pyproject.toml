@@ -28,11 +28,11 @@ dev = [
 all = ["philosopher-toy[dev]"]
 
 [project.scripts]
-philosopher-toy = "banana_client.main:main"
+philosopher-toy = "toy_client.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["banana_client*"]
+include = ["toy_client*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

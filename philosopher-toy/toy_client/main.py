@@ -10,11 +10,11 @@ try:
 except ImportError:  # optional: config still works via real env vars
     load_dotenv = None
 
-from banana_client.audio.capture import MicrophoneCapture
-from banana_client.audio.player import AudioPlayer
-from banana_client.hardware.servos import ServoController
-from banana_client.protocol.ws_client import ToyWebSocketClient
-from banana_client.vision.camera import Camera
+from toy_client.audio.capture import MicrophoneCapture
+from toy_client.audio.player import AudioPlayer
+from toy_client.hardware.servos import ServoController
+from toy_client.protocol.ws_client import ToyWebSocketClient
+from toy_client.vision.camera import Camera
 
 
 class Toy:
@@ -26,7 +26,7 @@ class Toy:
 
     def __init__(self) -> None:
         self.server_url = os.getenv("PHILOSOPHER_SERVER_URL", "ws://localhost:8080")
-        self.toy_id = os.getenv("PHILOSOPHER_TOY_ID", "banana_01")
+        self.toy_id = os.getenv("PHILOSOPHER_TOY_ID", "toy_01")
         self.mock = os.getenv("PHILOSOPHER_MOCK", "false").lower() == "true"
         self.ws = None
         self.mic = None

@@ -30,7 +30,7 @@ Servos/Speaker <-
 
 ## 2. Architecture
 
-### 2.1 Main Loop (`banana_client/main.py`)
+### 2.1 Main Loop (`toy_client/main.py`)
 
 ```
 1. Capture frame from camera
@@ -154,8 +154,8 @@ No linter configured yet.
 | Task | Command |
 |------|---------|
 | Install | `cd philosopher-toy && pip install -e ".[all]"` |
-| Run | `python -m banana_client.main` |
-| Run (mock) | `PHILOSOPHER_MOCK=true python -m banana_client.main` |
+| Run | `python -m toy_client.main` |
+| Run (mock) | `PHILOSOPHER_MOCK=true python -m toy_client.main` |
 | Test | `pytest tests/ -v` |
 
 ---

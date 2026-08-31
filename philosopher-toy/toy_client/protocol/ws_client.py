@@ -10,7 +10,7 @@ import aiohttp
 class ToyWebSocketClient:
     """WebSocket client for toy-server communication."""
 
-    def __init__(self, server_url: str, toy_id: str = "banana_01",
+    def __init__(self, server_url: str, toy_id: str = "toy_01",
                  reconnect_interval=5.0, max_reconnect=10, send_timeout=4.0):
         self.url = server_url.rstrip("/")
         self.toy_id = toy_id
