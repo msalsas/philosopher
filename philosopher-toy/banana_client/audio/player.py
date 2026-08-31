@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
+import subprocess
 
 
 class AudioPlayer:
@@ -34,7 +36,28 @@ class AudioPlayer:
             self.mock = True
             return
         self._ready = True
+        self._apply_volume()
         print(f"[Player] Playback via aplay ({self._device})")
+
+    def _apply_volume(self) -> None:
+        """Set the speaker volume from PHILOSOPHER_SPEAKER_VOLUME (percent) via
+        amixer, so it survives reboots without alsactl. Best-effort: a missing
+        amixer/control just leaves the current volume. Control name defaults to
+        'PCM' (this USB speaker); override with PHILOSOPHER_SPEAKER_MIXER."""
+        vol = os.getenv("PHILOSOPHER_SPEAKER_VOLUME")
+        if not vol or shutil.which("amixer") is None:
+            return
+        mixer = os.getenv("PHILOSOPHER_SPEAKER_MIXER", "PCM")
+        m = re.search(r"(?:plug)?hw:(\d+)", self._device)  # plughw:1,0 -> card 1
+        cmd = ["amixer"]
+        if m:
+            cmd += ["-c", m.group(1)]
+        cmd += ["sset", mixer, f"{vol}%"]
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=5, check=False)
+            print(f"[Player] Speaker volume set to {vol}% ({mixer})")
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     @property
     def is_playing(self) -> bool:
