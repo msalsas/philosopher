@@ -32,7 +32,7 @@ Philosopher es un peluche inteligente con el que puedes hablar. Tiene personalid
                               | HTTP (WiFi/Ethernet)
                               v
 +------------------------------------------------------------------+
-|  CAPA 3: Banana Pi dentro del peluche                            |
+|  CAPA 3: Raspberry Pi Zero WH dentro del peluche                            |
 |  El "cuerpo" del sistema. El hardware fisico del juguete.        |
 |  - Camara USB: ve caras y detecta emociones                      |
 |  - Microfono USB: escucha y transcribe voz a texto (STT)         |
@@ -50,9 +50,9 @@ La razon de esta separacion es flexibilidad: puedes cambiar el modelo de IA sin 
 ### Paso 0: Encendido y Conexion
 
 1. Enciendes el peluche (se alimenta por USB-C o bateria)
-2. La Banana Pi arranca, se conecta al WiFi
+2. La Raspberry Pi Zero WH arranca, se conecta al WiFi
 3. Se conecta al servidor Philosopher por la red
-4. El servidor verifica que puede hablar con el LLM (LM Studio)
+4. El servidor verifica que puede hablar con el LLM
 5. El peluche hace un movimiento de cabeza como gesto de saludo
 6. Todo listo - Philosopher "esta vivo"
 
@@ -112,7 +112,7 @@ La razon de esta separacion es flexibilidad: puedes cambiar el modelo de IA sin 
 
 ### Paso 3: El Servidor Procesa (el cerebro trabaja)
 
-**El Banana Pi envia al servidor:**
+**El Raspberry Pi Zero WH envia al servidor:**
 ```json
 {
   "message": "Hola Philosopher, como estas hoy?",
@@ -157,7 +157,7 @@ Recuerdo: A Maria le gusta hablar de musica.
 ```
 
 #### Paso 3.4 - Pensamiento (llamada al LLM)
-- El prompt del sistema + el historial reciente de la conversacion + el mensaje actual se envian al LLM (LM Studio)
+- El prompt del sistema + el historial reciente de la conversacion + el mensaje actual se envian al LLM
 - El LLM genera una respuesta en texto plano
 - Timeout de 30 segundos - si tarda mas, se maneja el error
 
@@ -177,7 +177,7 @@ Recuerdo: A Maria le gusta hablar de musica.
 
 ### Paso 4: Respuesta por Voz (TTS - Text to Speech)
 
-**El servidor responde al Banana Pi:**
+**El servidor responde al Raspberry Pi Zero WH:**
 ```json
 {
   "response": "Hola Maria! Me alegra verte con esa sonrisa. Toby ya te ha sacado a pasear hoy?",
@@ -186,7 +186,7 @@ Recuerdo: A Maria le gusta hablar de musica.
 }
 ```
 
-- El Banana Pi recibe el texto
+- El Raspberry Pi Zero WH recibe el texto
 - Limpia marcadores de accion (asteriscos, etc.)
 - Divide en trozos si es muy largo (mas de 400 caracteres)
 - Sintetiza voz en espanol usando TTS (Edge TTS - voz masculina "Alvaro")
@@ -356,19 +356,19 @@ El sistema esta disenado para degradarse gracefulmente - si algo falla, lo demas
 [Microfono] --> escucha voz --> transcribe a texto
       |
       v
-[Banana Pi] --> envia por WiFi al servidor
+[Raspberry Pi Zero WH] --> envia por WiFi al servidor
       |
       v
 [Servidor Philosopher]
   1. Recupera memoria de esa persona
   2. Busca recuerdos relevantes
   3. Construye prompt con personalidad + contexto
-  4. Pregunta al LLM (LM Studio)
+  4. Pregunta al LLM
   5. Formatea la respuesta
   6. Guarda todo en memoria
       |
       v
-[Banana Pi] --> recibe respuesta de texto
+[Raspberry Pi Zero WH] --> recibe respuesta de texto
       |
       +-->[TTS] --> reproduce voz por altavoz
       +-->[Servos] --> mueve cabeza y brazos

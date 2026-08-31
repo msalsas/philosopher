@@ -1,7 +1,7 @@
 # Hardware runbook — bringing Philosopher up on real devices
 
 > v2 architecture. The **server** (brain) runs on a Raspberry Pi 4; the **toy**
-> (dumb I/O) runs on a Banana Pi BPi-M2 Zero. See `CLAUDE.md` for the design.
+> (dumb I/O) runs on a Raspberry Pi Zero WH. See `CLAUDE.md` for the design.
 > This is the step-by-step for a from-scratch bring-up + a smoke checklist.
 
 ---
@@ -13,20 +13,20 @@
 - The tracked repo is ~0.5 MB / ~100 files. The ~60 MB you see locally is
   downloaded models under `data/`, which is **git-ignored** and re-fetched per
   device by `download_models.py` — so a full clone costs nothing on either SD card.
-- Each device installs **only its own subproject**, so the Banana Pi never pulls
+- Each device installs **only its own subproject**, so the Raspberry Pi Zero WH never pulls
   the server's heavy deps (faster-whisper/dlib/onnxruntime). The 512 MB limit is
   about what you `pip install` and run, not repo size.
 - The WebSocket protocol is the contract between the two halves. In one repo a
   protocol change is one atomic commit touching both sides — they can't drift.
 
 ```bash
-# On BOTH the RPi4 and the Banana Pi:
+# On BOTH the RPi4 and the Raspberry Pi Zero WH:
 git clone <repo-url> ~/philosopher
 
 # RPi4 (brain): install the server only
 cd ~/philosopher/philosopher-server && python -m venv .venv && .venv/bin/pip install -e .
 
-# Banana Pi (body): install the toy only — but NOT with a plain `pip install -e .`!
+# Raspberry Pi Zero WH (body): install the toy only — but NOT with a plain `pip install -e .`!
 # armhf has no PyPI wheels for numpy/opencv → pip would compile them from source
 # (hours, OOM on 512 MB). Install Debian's prebuilt packages and a venv that sees
 # them instead. Full sequence in §B.2:
@@ -45,7 +45,7 @@ it, but don't force it.
 # RPi4:
 sudo cp ~/philosopher/deploy/philosopher-server.service /etc/systemd/system/
 sudo systemctl enable --now philosopher-server
-# Banana Pi (add the user to hardware groups first):
+# Raspberry Pi Zero WH (add the user to hardware groups first):
 sudo usermod -aG gpio,audio,video $USER
 sudo cp ~/philosopher/deploy/philosopher-toy.service /etc/systemd/system/
 sudo systemctl enable --now philosopher-toy
@@ -198,12 +198,19 @@ Everything else below (toy setup, smoke checklist, perf knobs) applies unchanged
 
 ---
 
-## B. Toy — Banana Pi BPi-M2 Zero (the body, 512 MB)
+## B. Toy — Raspberry Pi Zero WH (the body, 512 MB)
 
-Zero ML here — only capture/playback/servos. Keep its footprint tiny. The M2 Zero
-is a quirky 15 € board (Allwinner H3, **armhf/32-bit**, 512 MB, 2.4 GHz-only WiFi,
-**one micro-USB OTG data port**, no Ethernet). The bring-up below is the hard-won
-real sequence; skipping a step here cost us a full day.
+Zero ML here — only capture/playback/servos. Keep its footprint tiny. The toy is a
+**Raspberry Pi Zero WH** (Broadcom BCM2835, **armhf / ARMv6, 32-bit**, 512 MB,
+2.4 GHz WiFi, pre-soldered 40-pin header, MIPI CSI camera, two micro-USB).
+
+⚠️ **Some sub-sections below are superseded history.** The toy was first planned on
+a Banana Pi M2 Zero (Allwinner H3), then that board was abandoned for the Pi Zero WH.
+So ignore the Banana-specific hardware: the camera is the **OV5647 MIPI CSI** and
+works via the `rpicam-still` binary (not the OV5640 DVP overlay in §B.4.2), capture
+no longer uses OpenCV (no `python3-opencv` needed on the toy), and servos use
+**RPi.GPIO** BCM pins (not H3 SUNXI bit-banged PWM in §B.4.3). `CLAUDE.md` + the toy
+`.env.example` are the current source of truth for the Pi Zero.
 
 > **STATUS (verified vs not):** B.0–B.2 were done and **verified** — the board boots,
 > joins WiFi, the toy installs and reaches `[Toy] Ready!` and connects to the server
@@ -212,7 +219,7 @@ real sequence; skipping a step here cost us a full day.
 > booting (suspected SD corruption from forced power-cuts during hangs, B.5).
 
 ### B.0 OS + first access (headless)
-- **OS:** Armbian "Debian 13 Trixie Minimal / CLI" for *Banana Pi M2 Zero*. Flash with
+- **OS:** Armbian "Debian 13 Trixie Minimal / CLI" for *Raspberry Pi Zero WH*. Flash with
   rpi-imager → "Use custom" (the Armbian AppImager needs GLIBC ≥ 2.39, often too new).
 - **Use a genuine SD card.** A fake/bad AliExpress card corrupts ext4 and gives endless
   `fsck`/hang loops — we burned a day on one. If boot drops to `UNEXPECTED INCONSISTENCY`,
@@ -315,7 +322,7 @@ soldering to undocumented pads; the I2S MAX98357A is the clean route.)
 
 5 wires + speaker. Connect the MAX98357A **by silkscreen label** (pin order varies):
 
-| MAX98357A | Banana Pi M2 Zero (physical pin) | H3 line |
+| MAX98357A | Raspberry Pi Zero WH (physical pin) | H3 line |
 |-----------|----------------------------------|---------|
 | `VIN`     | Pin 2 (5V)                       | —       |
 | `GND`     | Pin 6 (GND)                      | —       |
@@ -357,9 +364,9 @@ look similar. (We confirmed this after an OV5647 "night vision" module was bough
 mistake — it physically won't even seat: the M2 Zero CSI is a **24-pin FPC**, not the
 Pi's 15-pin.) Bridging MIPI→DVP needs an FPGA — not worth it.
 
-**Correct part:** an **OV5640 module sold *"for Banana Pi M2 Zero / M2+"*** — the DVP/parallel
+**Correct part:** an **OV5640 module sold *"for Raspberry Pi Zero WH / M2+"*** — the DVP/parallel
 variant on the 24-pin FPC, plugs straight into the CSI, **no expansion board** (e.g. OpenELAB
-"Banana Pi BPI-M2+/M2 Zero Camera", ~$13; also Banana Pi store / AliExpress clones). Buy
+"Raspberry Pi Zero WH BPI-M2+/M2 Zero Camera", ~$13; also Raspberry Pi Zero WH store / AliExpress clones). Buy
 checklist — the listing **must** say M2 Zero / M2+ and "no expansion board"; reject anything
 "for Raspberry Pi" (MIPI 15-pin) or a generic 24-pin OV5640 for another board (Tinker etc.;
 FPC pinout may differ). Verified-working unit (Qengineering): AliExpress item `32660117929`.

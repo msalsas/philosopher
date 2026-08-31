@@ -1,7 +1,7 @@
 # Theoretical Resource Consumption — Philosopher v2
 
 > Based on the WebSocket streaming architecture with configurable quality parameters.
-> Hardware: Banana Pi BPi-M2 Zero (512MB) + Raspberry Pi 4 (4GB).
+> Hardware: Raspberry Pi Zero WH (512MB) + Raspberry Pi 4 (4GB).
 
 ---
 
@@ -49,7 +49,7 @@
 | **PEAK (TTS + 1.0 FPS capture)** | **~75%** | Brief spikes | Still responsive |
 | **PEAK (TTS + 2.0 FPS capture)** | **~90%** | Brief spikes | Risk of stutter |
 
-### Critical Bottlenecks on Banana Pi
+### Critical Bottlenecks on Raspberry Pi Zero WH
 
 1. **Edge TTS + ffplay**: The biggest CPU spike. When a sentence arrives, the toy downloads an MP3 from Microsoft servers, saves to temp, then launches ffplay. This takes 1-3 seconds and hogs 40% CPU. During this time, camera capture may stutter.
 2. **Camera encode at 2.0 FPS**: Encoding 640x480 JPEGs twice per second pushes the H3 to its limit. Not recommended unless CPU is monitored.
@@ -71,7 +71,7 @@
 | **LangGraph** | Orchestrate 6-node pipeline (perception → memory → prompt → think → format → store) |
 | **WebSocket** | Manage toy connection, route audio/vision/text streams |
 | **NO TTS** | Toy handles speech synthesis. Server only sends text. |
-| **NO LOCAL LLM** | External API only (LM Studio, OpenAI, etc.). Server is just a proxy. |
+| **NO LOCAL LLM** | External API only (LM Studio, Ollama, vLLM, OpenAI, etc.). Server is just a proxy. |
 
 ### RAM Breakdown (Steady State)
 
@@ -151,7 +151,7 @@
 
 ## 5. SERVO POWER REALITY CHECK
 
-| Scenario | Power Draw | Banana Pi Stability |
+| Scenario | Power Draw | Raspberry Pi Zero WH Stability |
 |----------|------------|---------------------|
 | **One servo moving** | ~200-300mA | ✅ Stable |
 | **Two servos simultaneously** | ~400-600mA | ⚠️ Risk of brownout |
@@ -159,7 +159,7 @@
 | **Servo + TTS playback** | ~300mA + 100mA | ✅ Stable |
 | **Servo + TTS + camera** | ~300mA + 100mA + 150mA | ⚠️ Marginal if all peak |
 
-**The Banana Pi's MicroUSB input**: Assuming a 5V/2A supply (10W), the board itself uses ~2-3W (400-600mA). One servo at peak draws ~1.5W (300mA). Total: ~4-5W. Within the 10W budget, but **transient spikes** (servo stall current) can briefly exceed 2A and trigger the polyfuse or voltage regulator shutdown.
+**The Raspberry Pi Zero WH's MicroUSB input**: Assuming a 5V/2A supply (10W), the board itself uses ~2-3W (400-600mA). One servo at peak draws ~1.5W (300mA). Total: ~4-5W. Within the 10W budget, but **transient spikes** (servo stall current) can briefly exceed 2A and trigger the polyfuse or voltage regulator shutdown.
 
 **Why sequential servos are mandatory**: Even though the average draw is within budget, the instantaneous current when a servo starts moving can spike to 1A for 50ms. Two servos starting simultaneously = 2A spike + board's 600mA = 2.6A. The polyfuse trips or voltage sags below 4.5V, causing the SoC to reset.
 
@@ -182,7 +182,7 @@
 
 ## 7. SUMMARY: WHAT EACH MACHINE DOES
 
-### Banana Pi BPi-M2 Zero (512MB)
+### Raspberry Pi Zero WH (512MB)
 **Role**: Dumb I/O node. Zero intelligence.
 - Captures microphone audio and sends raw PCM to server
 - Captures camera frames and sends JPEG to server
@@ -240,6 +240,6 @@ If the system feels sluggish in practice:
 | **External 5V servo supply** | ~$5 | Multi-servo animations, instant poses | Hardware mod |
 | **Raspberry Pi 5 (8GB)** | ~$80 | 2-3× faster server, room for `small` STT | Swap board |
 | **Coral USB TPU** | ~$60 | Offload face detection + emotion from CPU | USB plug-in |
-| **Upgrade Banana Pi to M5 (4GB)** | ~$50 | Run Whisper locally, eliminate server dependency | Swap board |
+| **Upgrade Raspberry Pi Zero WH to M5 (4GB)** | ~$50 | Run Whisper locally, eliminate server dependency | Swap board |
 
 The cheapest and highest-impact upgrade: **external 5V servo supply**. It unlocks instant, simultaneous servo poses for $5 in parts.

@@ -1,6 +1,6 @@
 # Philosopher Toy
 
-Thin I/O client for the Philosopher conversational AI. Runs on a **Banana Pi
+Thin I/O client for the Philosopher conversational AI. Runs on a **Raspberry Pi Zero WH
 BPi-M2 Zero (512 MB)** embedded inside a plush toy. It performs **zero ML** — all
 intelligence lives in `philosopher-server`. The toy just captures audio/video,
 streams it to the server over WebSocket, plays back synthesized speech, and moves

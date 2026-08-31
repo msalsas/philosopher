@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-The **philosopher-toy** is the physical client layer of the Philosopher conversational AI ecosystem. It runs on a **Banana Pi** embedded inside a plush toy and handles all hardware interactions:
+The **philosopher-toy** is the physical client layer of the Philosopher conversational AI ecosystem. It runs on a **Raspberry Pi Zero WH** embedded inside a plush toy and handles all hardware interactions:
 
 - **Camera**: Face detection and emotion recognition
 - **Microphone**: Speech-to-text
@@ -15,7 +15,7 @@ The **philosopher-toy** is the physical client layer of the Philosopher conversa
 - **Servos**: Head and arm movements
 
 ```
-Camera/Mic -> Banana Pi -> HTTP -> Philosopher Server -> LLM
+Camera/Mic -> Raspberry Pi Zero WH -> HTTP -> Philosopher Server -> LLM
                 <- Response <-
 Servos/Speaker <-
 ```
@@ -165,6 +165,6 @@ No linter configured yet.
 - **STT requires internet**: Uses Google Speech Recognition. No offline STT yet.
 - **No wake word**: Currently requires button press or continuous listening. No "Hey Philosopher" detection.
 - **No LED implementation**: `hardware/leds.py` does not exist yet.
-- **TTS depends on `ffplay`**: Requires ffmpeg installed on the Banana Pi.
+- **TTS depends on `ffplay`**: Requires ffmpeg installed on the Raspberry Pi Zero WH.
 - **Camera emotion detection is slow**: DeepFace on CPU can be sluggish. Consider lighter models.
 - **No WebSocket**: HTTP polling only. Could add WebSocket for real-time bidirectional communication.

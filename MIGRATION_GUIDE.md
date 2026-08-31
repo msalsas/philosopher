@@ -1,7 +1,7 @@
 # MIGRATION GUIDE: Philosopher v2 — From HTTP to WebSocket Streaming
 
 > Incremental refactor of the existing Philosopher project.
-> Hardware: Banana Pi BPi-M2 Zero (512MB) + Raspberry Pi 4 (4GB).
+> Hardware: Raspberry Pi Zero WH (512MB) + Raspberry Pi 4 (4GB).
 > Goal: WebSocket streaming, server-side AI, configurable quality.
 > **This guide is authoritative. Where REWRITE_PROMPT.md conflicts, this guide wins.**
 
@@ -1174,7 +1174,7 @@ This keeps the existing graph intact for HTTP API fallback while enabling senten
 # LLM (external only)
 PHILOSOPHER_LLM_PROVIDER=local
 PHILOSOPHER_LLM_BASE_URL=http://192.168.1.100:1234/v1
-PHILOSOPHER_LLM_API_KEY=lm-studio
+PHILOSOPHER_LLM_API_KEY=not-needed
 PHILOSOPHER_LLM_MODEL=llama-3.1-8b
 
 # STT (configurable quality)

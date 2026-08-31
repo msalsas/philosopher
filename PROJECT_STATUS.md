@@ -1,7 +1,7 @@
-# Project status — parked (body hardware blocked on the Banana Pi M2 Zero)
+# Project status — parked (body hardware blocked on the Raspberry Pi Zero WH)
 
 The **server/brain is done and works**. The project is paused on **one** thing:
-the toy's host board (Banana Pi BPI-M2 Zero) is the wrong board for this, and
+the toy's host board (Raspberry Pi Zero WH BPI-M2 Zero) is the wrong board for this, and
 its onboard Wi-Fi makes the toy unusable. This doc says what works, why the
 board doesn't fit, what carries over, and how to resume — so a cold restart
 needs no re-discovery.
@@ -69,7 +69,7 @@ USB mic, USB speaker, the servos — reusable on any board.
   the Pi Zero 2 W (it's MIPI; the Pi has MIPI). ⚠️ Needs the **narrow Pi-Zero
   camera ribbon** (mini 22-pin connector), often bundled with "for Pi Zero"
   modules or ~2-3€; verify against the exact module before relying on it.
-- ❌ **OV5640 DVP** (the "for Banana Pi M2 Zero" module ordered later) — **does
+- ❌ **OV5640 DVP** (the "for Raspberry Pi Zero WH" module ordered later) — **does
   NOT work** on a MIPI board; it was DVP/parallel, only for the abandoned Banana.
 
 So switching to the Pi Zero 2 W rescues the OV5647 (the earlier "wasted" cam) and

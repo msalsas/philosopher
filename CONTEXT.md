@@ -1,18 +1,18 @@
 # Philosopher - Contexto del Proyecto para Retomar
 
 > ### ⚠️ Este documento describe la v1. El proyecto está en **v2**.
-> En v2 **toda la IA corre en el servidor (Raspberry Pi 4, 4GB)**: STT (`faster-whisper`), visión (`face_recognition` + `DeepFace`) y TTS (**Piper** vía subprocess). El peluche (**Banana Pi BPi-M2 Zero, 512MB**) es un **cliente de E/S sin ML**: captura mic/cámara y los envía por **WebSocket**, reproduce WAV y mueve servos. La comunicación es **WebSocket** (`/ws`), no HTTP POST (el `/chat` HTTP solo queda para diagnóstico). Donde el texto de abajo diga "No WebSocket", STT con Google, o DeepFace/STT/Edge-TTS *en el peluche*, es **v1 obsoleta**. La fuente de verdad es `MIGRATION_GUIDE.md` + el código + `/CLAUDE.md`.
+> En v2 **toda la IA corre en el servidor (Raspberry Pi 4, 4GB)**: STT (`faster-whisper`), visión (`face_recognition` + `DeepFace`) y TTS (**Piper** vía subprocess). El peluche (**Raspberry Pi Zero WH, 512MB**) es un **cliente de E/S sin ML**: captura mic/cámara y los envía por **WebSocket**, reproduce WAV y mueve servos. La comunicación es **WebSocket** (`/ws`), no HTTP POST (el `/chat` HTTP solo queda para diagnóstico). Donde el texto de abajo diga "No WebSocket", STT con Google, o DeepFace/STT/Edge-TTS *en el peluche*, es **v1 obsoleta**. La fuente de verdad es `MIGRATION_GUIDE.md` + el código + `/CLAUDE.md`.
 
 ## Vision General
 
-Philosopher es un agente conversacional con personalidad, memoria dual (corto y largo plazo), reconocimiento facial y deteccion de emociones. Esta embebido en un peluche inteligente que funciona con una Banana Pi. El proyecto se divide en **dos proyectos Python independientes**.
+Philosopher es un agente conversacional con personalidad, memoria dual (corto y largo plazo), reconocimiento facial y deteccion de emociones. Esta embebido en un peluche inteligente que funciona con una Raspberry Pi Zero WH. El proyecto se divide en **dos proyectos Python independientes**.
 
 ## Arquitectura de 3 Capas
 
 ```
 +-------------------+  WiFi/LAN  +--------------------+  HTTP REST  +-------------------+
 | Ordenador LLM     |            | philosopher-server  |             | philosopher-toy    |
-| (LM Studio,       | <------->  | (Cualquier PC)     | <---------> | (Banana Pi en el  |
+| (LM Studio,       | <------->  | (Cualquier PC)     | <---------> | (Raspberry Pi Zero WH en el  |
 |  OpenAI, Ollama)  |   HTTP     |                    |   WiFi      |  peluche)         |
 +-------------------+            +--------------------+             +-------------------+
   Modelo 8B                            Cerebro                           Cuerpo
@@ -22,7 +22,7 @@ Philosopher es un agente conversacional con personalidad, memoria dual (corto y 
 
 ### Capa 1: Ordenador LLM
 - **Hardware**: Cualquier ordenador con GPU o CPU suficiente
-- **Software**: LM Studio (recomendado), OpenAI API, Ollama, o cualquier endpoint compatible con OpenAI API
+- **Software**: un servidor LLM OpenAI-compatible (LM Studio, Ollama, vLLM, llama.cpp…), OpenAI API, Ollama, o cualquier endpoint compatible con OpenAI API
 - **Modelo**: 8B parametros (ej: Llama 3.1 8B, Mistral 7B, Phi-3)
 - **Rol**: Genera respuestas de texto basadas en los prompts que el servidor construye
 - **Conexion**: HTTP local (misma red WiFi que el servidor)
@@ -32,8 +32,8 @@ Philosopher es un agente conversacional con personalidad, memoria dual (corto y 
 - **Rol**: El cerebro. Coordina toda la inteligencia del sistema
 - **Proyecto Python**: `philosopher-server/` con su propio `pyproject.toml`
 
-### Capa 3: philosopher-toy (Banana Pi dentro del peluche)
-- **Hardware**: Banana Pi BPI-M2 Zero / BPI-M64 + camara USB + microfono + altavoz + servos + LEDs
+### Capa 3: philosopher-toy (Raspberry Pi Zero WH dentro del peluche)
+- **Hardware**: Raspberry Pi Zero WH BPI-M2 Zero / BPI-M64 + camara USB + microfono + altavoz + servos + LEDs
 - **Rol**: Los sentidos y el cuerpo. Captura el mundo fisico y actua sobre el
 - **Proyecto Python**: `philosopher-toy/` con su propio `pyproject.toml`
 
