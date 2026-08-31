@@ -32,7 +32,10 @@ class ServoController:
     async def init(self):
         if not self.mock:
             try:
-                import OPi.GPIO as GPIO
+                # RPi.GPIO on the Pi Zero WH (provided by the rpi-lgpio drop-in
+                # on modern Raspberry Pi OS). Same API as the old OPi.GPIO path.
+                import RPi.GPIO as GPIO
+                GPIO.setwarnings(False)
                 GPIO.setmode(GPIO.BCM)
                 for pin in self.pins.values():
                     GPIO.setup(pin, GPIO.OUT)
