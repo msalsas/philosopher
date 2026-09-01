@@ -68,15 +68,25 @@ class Toy:
         print("[Toy] Ready!")
 
     async def run(self):
+        self._camera_on_speech = os.getenv(
+            "PHILOSOPHER_CAMERA_ON_SPEECH", "").lower() in ("1", "true", "yes")
         # return_exceptions=True so one task raising can't cancel the siblings
         # (e.g. a transient error in the audio path must not kill receive/idle).
-        await asyncio.gather(
+        tasks = [
             self._resilient(self._audio_task, "audio"),
-            self._resilient(self._video_task, "video"),
             self._receive_task(),
             self.servos.idle_loop(),   # subtle idle motion so it isn't a statue
-            return_exceptions=True,
-        )
+        ]
+        # Camera modes (power budget): off (CAMERA_DISABLE), on_speech
+        # (CAMERA_ON_SPEECH, one frame per turn — spike lands while the amp is
+        # silent, no brownout), or stream (default, continuous, drives gaze).
+        if os.getenv("PHILOSOPHER_CAMERA_DISABLE", "").lower() in ("1", "true", "yes"):
+            print("[Toy] Camera off (voice-only mode)")
+        elif self._camera_on_speech:
+            print("[Toy] Camera on-speech mode (one frame per turn)")
+        else:
+            tasks.insert(1, self._resilient(self._video_task, "video"))
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _resilient(self, task_fn, name):
         """Keep a sensor loop alive: if it dies (e.g. a send blew up mid-drop),
@@ -106,6 +116,10 @@ class Toy:
         async for event in self.mic.capture_stream():
             if event["type"] == "speech_started":
                 await self.ws.send_json({"type": "speech_started"})
+                # On-speech: grab one frame (background, so it doesn't stall the
+                # audio loop) while the amp is still silent.
+                if getattr(self, "_camera_on_speech", False) and self.camera:
+                    asyncio.create_task(self._capture_and_send())
             elif event["type"] == "speech_ended":
                 await self.ws.send_audio(event["audio"])
                 await self.ws.send_json({"type": "speech_ended"})
@@ -121,6 +135,15 @@ class Toy:
                 jpeg = await self.camera.encode(frame)
                 await self.ws.send_frame(jpeg)
             await asyncio.sleep(interval)
+
+    async def _capture_and_send(self):
+        """Grab and ship one frame (on-speech mode)."""
+        try:
+            frame = await self.camera.capture()
+            if frame is not None:
+                await self.ws.send_frame(await self.camera.encode(frame))
+        except Exception as exc:
+            print(f"[Camera] on-speech capture failed: {exc}")
 
     async def _receive_task(self):
         while True:
@@ -138,6 +161,8 @@ class Toy:
                 # gate; playback itself keeps the mic suppressed (is_playing).
                 self._awaiting_response = False
                 await self.player.play_wav(msg["payload"])
+            elif msg["type"] == "idle":
+                self._awaiting_response = False  # silent mic-gate release (no reply)
             elif msg["type"] == "error":
                 self._awaiting_response = False
                 print(f"[Error] {msg['message']}")

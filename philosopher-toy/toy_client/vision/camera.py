@@ -20,7 +20,8 @@ class Camera:
                  fps: float | None = None) -> None:
         if fps is None:
             fps = float(os.getenv("PHILOSOPHER_CAMERA_FPS", "0.5"))
-        self.fps = max(0.5, min(5.0, round(fps * 2) / 2))
+        # Floor 0.1 (a frame every 10 s) — fewer captures = fewer power spikes.
+        self.fps = max(0.1, min(5.0, round(fps * 10) / 10))
         self.quality = max(30, min(90, int(os.getenv("PHILOSOPHER_CAMERA_QUALITY", "60"))))
         self.width = int(os.getenv("PHILOSOPHER_CAMERA_WIDTH", str(width)))
         self.height = int(os.getenv("PHILOSOPHER_CAMERA_HEIGHT", str(height)))

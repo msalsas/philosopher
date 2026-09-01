@@ -12,6 +12,7 @@ class AgentState:
     face_name: str | None = None
     emotion: str | None = None
     is_new_face: bool = False
+    expect_name: bool = False  # last turn asked the name -> this message is the answer
     system_prompt: str = ""
     short_context: list[dict] = field(default_factory=list)
     long_memories: list[dict] = field(default_factory=list)

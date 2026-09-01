@@ -13,7 +13,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class LLMSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PHILOSOPHER_LLM_")
     provider: Literal["local", "openai", "ollama", "custom"] = "local"
-    base_url: str = "http://localhost:1234/v1"  # any OpenAI-compatible server (Ollama/llama.cpp/vLLM/LM Studio/OpenAI)
+    # any OpenAI-compatible server (Ollama/llama.cpp/vLLM/LM Studio/OpenAI)
+    base_url: str = "http://localhost:1234/v1"
     api_key: str = "not-needed"  # placeholder for local servers; set your real key only for OpenAI
     model: str = "llama-3.1-8b"
     max_tokens: int = 4096
@@ -42,6 +43,10 @@ class PersonalitySettings(BaseSettings):
     personality: str = "filosofo"
     name: str = "Philosopher"
     language: str = "es"
+    # Wake-word gate (opt-in): toy starts asleep, answers only after the
+    # activation word; phrases live in the personality YAML (`wake:` section).
+    wake_enabled: bool = False
+    sleep_timeout: float = 1800.0  # 30 min of inactivity -> back to sleep
 
 
 class APISettings(BaseSettings):

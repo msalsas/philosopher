@@ -48,3 +48,14 @@ fallbacks:
   error: "Disculpa, ahora mismo se me nubla la mente. Probemos de nuevo en un momento."
 face_registration:
   ask_name_prompt: "Hola... aun no nos conocemos. ¿Como te llamas?"
+# Wake-word gate (only active when PHILOSOPHER_WAKE_ENABLED=true). The toy stays
+# quiet until it hears an `activate` phrase, and goes back to sleep on a
+# `deactivate` phrase (or after PHILOSOPHER_SLEEP_TIMEOUT of silence). Matching
+# is accent/case-insensitive, so plain forms suffice.
+wake:
+  activate:
+    - "despierta"
+    - "filosofo"
+  deactivate:
+    - "hasta luego"
+    - "buenas noches"

@@ -52,13 +52,27 @@ class PersonalityEngine:
         f = self._data.get("speech_patterns", {}).get("farewells", ["Goodbye."])
         return random.choice(f)
 
+    # Wake-gate phrases (from the YAML `wake:` section); defaults if absent.
+    _DEFAULT_WAKE = ["despierta"]
+    _DEFAULT_SLEEP = ["hasta luego", "buenas noches"]
+
+    def wake_words(self) -> list[str]:
+        w = self._data.get("wake", {}) or {}
+        return w.get("activate") or self._DEFAULT_WAKE
+
+    def sleep_words(self) -> list[str]:
+        w = self._data.get("wake", {}) or {}
+        return w.get("deactivate") or self._DEFAULT_SLEEP
+
     def build_prompt(
         self, emotion: str | None = None, face_name: str | None = None,
         memories: list | None = None,
     ) -> str:
         parts = [self.system_prompt]
         if face_name:
-            parts.append(f"You are talking to {face_name}.")
+            parts.append(
+                f"You are talking to {face_name}. Address them by their name "
+                f"naturally now and then (not in every sentence).")
         if emotion:
             parts.append(f"The person seems {emotion}.")
         if memories:

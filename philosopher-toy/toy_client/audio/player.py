@@ -48,7 +48,8 @@ class AudioPlayer:
         if not vol or shutil.which("amixer") is None:
             return
         mixer = os.getenv("PHILOSOPHER_SPEAKER_MIXER", "PCM")
-        m = re.search(r"(?:plug)?hw:(\d+)", self._device)  # plughw:1,0 -> card 1
+        # Card as a number ("plughw:1,0") or a name ("plughw:CARD=Foo,DEV=0").
+        m = re.search(r"hw:(?:CARD=)?([^,]+)", self._device)
         cmd = ["amixer"]
         if m:
             cmd += ["-c", m.group(1)]

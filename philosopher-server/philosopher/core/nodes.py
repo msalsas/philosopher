@@ -70,15 +70,15 @@ def build_messages(state: AgentState) -> list[LLMMessage]:
     """
     msgs = [LLMMessage(role=m["role"], content=m["content"]) for m in state.short_context[-5:]]
     msgs.append(LLMMessage(role="user", content=state.message))
-    if state.is_new_face:
-        if state.face_name:
-            msgs.append(LLMMessage(
-                role="user", content=f"[Introduce yourself to {state.face_name}]"))
-        else:
-            msgs.append(LLMMessage(
-                role="user",
-                content="[A new person you don't recognize is here. "
-                        "Greet them warmly and ask their name.]"))
+    if state.is_new_face and state.face_name:
+        msgs.append(LLMMessage(
+            role="user", content=f"[Introduce yourself to {state.face_name}]"))
+    elif not state.face_name:
+        # New face, or a known one still unnamed — keep asking so it can be learned.
+        msgs.append(LLMMessage(
+            role="user",
+            content="[You don't know this person's name yet. "
+                    "Greet them warmly and ask their name.]"))
     return msgs
 
 
@@ -105,8 +105,9 @@ async def node_format(state: AgentState, ctx: NodeCtx) -> AgentState:
 
 
 async def background_extract_name(state: AgentState, ctx: NodeCtx):
-    """Extract name from new faces — runs OFF the critical path."""
-    if not state.is_new_face or not state.face_id:
+    """Learn the name of any face that doesn't have one yet — off the critical
+    path. Gated on expect_name (last turn asked) so noise isn't stored as a name."""
+    if not state.face_id or not state.expect_name:
         return
 
     face = await ctx.memory.long.get_face(state.face_id)

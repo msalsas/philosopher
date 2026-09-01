@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import time
+import unicodedata
 from typing import Any
 
 from philosopher.config.settings import Settings, get_settings
@@ -28,6 +30,23 @@ from philosopher.personality.engine import PersonalityEngine
 _TIMING = os.getenv("PHILOSOPHER_TIMING") == "1"
 
 
+def _normalize(text: str) -> str:
+    """Lowercase, strip accents/punctuation, collapse spaces (for wake matching)."""
+    text = unicodedata.normalize("NFKD", text.lower())
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _match_phrase(norm_text: str, phrases: list[str]) -> str | None:
+    """First phrase (normalized) occurring in `norm_text` as a whole word, else None."""
+    for p in phrases:
+        np = _normalize(p)
+        if np and re.search(rf"(?:^|\s){re.escape(np)}(?:\s|$)", norm_text):
+            return np
+    return None
+
+
 class Orchestrator:
     """Coordinates LLM, memory, personality, and the LangGraph pipeline."""
 
@@ -46,6 +65,13 @@ class Orchestrator:
         self.dashboard: DashboardHub | None = None
         # Last detected face/emotion per toy, fed into the next streamed reply.
         self.last_vision: dict[str, dict] = {}
+        # Wake-word gate state (only used when settings.personality.wake_enabled):
+        # is the toy currently "awake", and when did it last actually converse
+        # (for the inactivity auto-sleep).
+        self.awake: dict[str, bool] = {}
+        self.last_active: dict[str, float] = {}
+        # Per-toy: did last turn ask the person's name? (gates name extraction)
+        self.awaiting_name: dict[str, bool] = {}
         self._running = False
 
     async def init(self) -> None:
@@ -119,18 +145,86 @@ class Orchestrator:
         if _TIMING:
             print(f"[TIMING] STT={time.perf_counter() - _t0:.2f}s", flush=True)
 
-        # Either "couldn't transcribe" case -- low confidence OR empty text --
-        # must send SOMETHING back, including a WAV, so the toy releases its
-        # per-turn mic gate instead of going deaf until RESPONSE_TURN_TIMEOUT.
-        if result.get("low_confidence") or not result.get("text", "").strip():
+        text = result.get("text", "")
+        # Couldn't transcribe (low confidence or empty) — still needs a reply so
+        # the toy releases its per-turn mic gate.
+        low_or_empty = bool(result.get("low_confidence")) or not text.strip()
+
+        # Wake gate (opt-in): returns the request to answer, or None to stay quiet.
+        if self.settings.personality.wake_enabled:
+            text = await self._apply_wake_gate(toy_id, text, low_or_empty)
+            if text is None:
+                return
+        elif low_or_empty:
             await self._send_not_understood(toy_id)
             return
-
-        text = result.get("text", "")
 
         face = self.last_vision.get(toy_id) or {}
         await self._emit(EventType.USER_TEXT, face_id=face.get("face_id"), text=text)
         await self._stream_response(toy_id, text, _t0)
+
+    async def _apply_wake_gate(
+        self, toy_id: str, text: str, low_or_empty: bool = False,
+    ) -> str | None:
+        """Sleep/wake state machine. Returns the request to answer (activation
+        phrase stripped), or None to stay quiet (mic gate still released)."""
+        now = time.monotonic()
+        awake = self.awake.get(toy_id, False)
+        # Inactivity auto-sleep.
+        idle_for = now - self.last_active.get(toy_id, now)
+        if awake and idle_for > self.settings.personality.sleep_timeout:
+            awake = False
+            self.awake[toy_id] = False
+
+        # Garbled/empty (usually noise): silent while asleep, "repeat?" while awake.
+        if low_or_empty:
+            if awake:
+                await self._send_not_understood(toy_id)
+            else:
+                await self._send_idle(toy_id)
+            return None
+
+        norm = _normalize(text)
+
+        if not awake:
+            wake = _match_phrase(norm, self.personality.wake_words())
+            if not wake:
+                await self._send_idle(toy_id)  # asleep & not addressed -> ignore
+                return None
+            self.awake[toy_id] = True
+            self.last_active[toy_id] = now
+            remainder = norm.split(wake, 1)[-1].strip()
+            if len(remainder) < 3:  # just the wake word -> only greet
+                await self._speak(toy_id, self.personality.greeting())
+                return None
+            return remainder  # one-shot: "despierta, cuéntame un chiste"
+
+        # Awake: a deactivation phrase sends it back to sleep.
+        if _match_phrase(norm, self.personality.sleep_words()):
+            self.awake[toy_id] = False
+            await self._speak(toy_id, self.personality.farewell())
+            return None
+
+        self.last_active[toy_id] = now
+        return text
+
+    async def _speak(self, toy_id: str, text: str, emotion: str = "neutral") -> None:
+        """Send one spoken line (text + WAV); falls back to `idle` if no audio."""
+        await self.ws_manager.send_json(toy_id, {
+            "type": "text", "content": text, "emotion": emotion,
+        })
+        audio_sent = False
+        if self.tts and self.settings.tts.enabled:
+            audio_bytes = await self.tts.synthesize(text)
+            if audio_bytes:
+                await self.ws_manager.send_binary(toy_id, 0x03, audio_bytes)
+                audio_sent = True
+        if not audio_sent:
+            await self._send_idle(toy_id)
+
+    async def _send_idle(self, toy_id: str) -> None:
+        """Silently release the toy's per-turn mic gate (no speech)."""
+        await self.ws_manager.send_json(toy_id, {"type": "idle"})
 
     async def _send_not_understood(self, toy_id: str) -> None:
         """Tell the user we didn't catch that (text + WAV). The WAV also releases
@@ -201,6 +295,11 @@ class Orchestrator:
 
         # Shared message assembly (incl. new-face introduction / name-ask).
         messages = build_messages(state)
+
+        # Name handshake: this message is a name answer only if last turn asked;
+        # we ask this turn when there's a face with no name.
+        state.expect_name = self.awaiting_name.get(toy_id, False)
+        self.awaiting_name[toy_id] = bool(state.face_id and not state.face_name)
 
         buffer = ""
         full_response = ""

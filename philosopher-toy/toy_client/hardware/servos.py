@@ -2,7 +2,20 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import random
+
+
+def _pin_env(var: str, default: int) -> int | None:
+    """BCM pin from env; 0/empty/negative -> None (servo disabled, gestures no-op)."""
+    raw = os.getenv(var)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        pin = int(raw)
+    except ValueError:
+        return default
+    return pin if pin > 0 else None
 
 
 class ServoController:
@@ -19,7 +32,13 @@ class ServoController:
     IDLE_MAX_INTERVAL = 7.0
 
     def __init__(self, head=12, left=13, right=18, mock=False) -> None:
-        self.pins = {"head": head, "left_arm": left, "right_arm": right}
+        # BCM pins, overridable per servo via env; a None pin is dropped.
+        candidates = {
+            "head": _pin_env("PHILOSOPHER_SERVO_HEAD_PIN", head),
+            "left_arm": _pin_env("PHILOSOPHER_SERVO_LEFT_ARM_PIN", left),
+            "right_arm": _pin_env("PHILOSOPHER_SERVO_RIGHT_ARM_PIN", right),
+        }
+        self.pins = {name: pin for name, pin in candidates.items() if pin is not None}
         self.mock = mock
         self.pos = {k: 0 for k in self.pins}
         # Base head angle the toy "looks" at (set by face tracking); emotion
@@ -171,7 +190,7 @@ class ServoController:
     def close(self):
         if not self.mock:
             try:
-                import OPi.GPIO as GPIO
+                import RPi.GPIO as GPIO
                 if hasattr(self, "_pwm"):
                     for pwm in self._pwm.values():
                         pwm.stop()
