@@ -70,6 +70,10 @@ class Toy:
     async def run(self):
         self._camera_on_speech = os.getenv(
             "PHILOSOPHER_CAMERA_ON_SPEECH", "").lower() in ("1", "true", "yes")
+        # Gaze-only: head tracks the face (look, fires while you talk = amp
+        # silent) but no emotion gestures (which fire during the reply/amp).
+        self._servo_gaze_only = os.getenv(
+            "PHILOSOPHER_SERVO_GAZE_ONLY", "").lower() in ("1", "true", "yes")
         # return_exceptions=True so one task raising can't cancel the siblings
         # (e.g. a transient error in the audio path must not kill receive/idle).
         tasks = [
@@ -153,9 +157,13 @@ class Toy:
             elif msg["type"] == "look":
                 await self.servos.look(msg.get("offset_x", 0.0))
             elif msg["type"] == "react":
-                await self.servos.react(msg["emotion"])
+                # Gaze-only mode skips emotion gestures (they fire during the
+                # reply, when the amp draws — the combo browns out a tight rail).
+                if not getattr(self, "_servo_gaze_only", False):
+                    await self.servos.react(msg["emotion"])
             elif msg["type"] == "servo":
-                await self.servos.animate(msg["emotion"])
+                if not getattr(self, "_servo_gaze_only", False):
+                    await self.servos.animate(msg["emotion"])
             elif msg["type"] == "binary" and msg.get("frame_type") == 0x03:
                 # Reply audio arrived: the turn is done processing. Clear the
                 # gate; playback itself keeps the mic suppressed (is_playing).

@@ -1,9 +1,25 @@
-"""Servo controller for head and arm movements."""
+"""Servo controller — head on hardware PWM (smooth, jitter-free).
+
+The head servo (BCM12 = PWM0 ch0, enabled by `dtoverlay=pwm,pin=12,func=4` in
+config.txt) is driven via the sysfs hardware-PWM interface: stable pulses, no
+software-PWM tremor. The signal is released (duty 0) at rest so a servo draws no
+holding current between moves — this rig's 5V rail can't sustain a held servo
+plus the audio amp without browning out. Arms would need their own PWM channels
+and are treated as no-ops here.
+"""
 from __future__ import annotations
 
 import asyncio
 import os
 import random
+import subprocess
+
+_PWMCHIP = "/sys/class/pwm/pwmchip0"
+_PWM0 = _PWMCHIP + "/pwm0"
+_PERIOD_NS = 20_000_000          # 20 ms = 50 Hz
+_CENTER_NS = 1_500_000           # 1.5 ms
+_MIN_NS, _MAX_NS = 500_000, 2_500_000   # 0.5–2.5 ms = -90°..+90°
+_NS_PER_DEG = 1_000_000 / 90
 
 
 def _pin_env(var: str, default: int) -> int | None:
@@ -19,20 +35,15 @@ def _pin_env(var: str, default: int) -> int | None:
 
 
 class ServoController:
-    """Controls servos for the toy's head and arms."""
+    """Controls the head servo (hardware PWM). Arms are no-ops on this rig."""
 
-    # Max head pan (degrees) for face tracking, and the deadzone (degrees) below
-    # which we ignore a change to avoid jitter.
-    MAX_PAN = 60
-    PAN_DEADZONE = 5
-    # Idle "breathing": tiny head drift around the base so the toy isn't a
-    # frozen statue between events. Small amplitude, slow & randomized cadence.
-    IDLE_DRIFT = 3
-    IDLE_MIN_INTERVAL = 3.0
-    IDLE_MAX_INTERVAL = 7.0
+    MAX_PAN = 30          # max head pan (deg) for face tracking
+    PAN_DEADZONE = 5      # ignore gaze changes below this (anti-jitter)
+    IDLE_DRIFT = 30       # idle "look around" amplitude (deg)
+    IDLE_MIN_INTERVAL = 12.0
+    IDLE_MAX_INTERVAL = 30.0
 
     def __init__(self, head=12, left=13, right=18, mock=False) -> None:
-        # BCM pins, overridable per servo via env; a None pin is dropped.
         candidates = {
             "head": _pin_env("PHILOSOPHER_SERVO_HEAD_PIN", head),
             "left_arm": _pin_env("PHILOSOPHER_SERVO_LEFT_ARM_PIN", left),
@@ -41,37 +52,47 @@ class ServoController:
         self.pins = {name: pin for name, pin in candidates.items() if pin is not None}
         self.mock = mock
         self.pos = {k: 0 for k in self.pins}
-        # Base head angle the toy "looks" at (set by face tracking); emotion
-        # gestures are applied as deltas on top of this.
         self.head_base = 0
+        self._last_ns = _CENTER_NS   # for smooth ramping of the head
+        self._hw = False
         self.moving = False
         self.queue = asyncio.Queue()
         self._worker_started = False
 
     async def init(self):
-        if not self.mock:
+        if not self.mock and "head" in self.pins:
+            # Export the HW-PWM channel and make it writable by this (non-root)
+            # process; passwordless sudo is used once here. Leave it released.
             try:
-                # RPi.GPIO on the Pi Zero WH (provided by the rpi-lgpio drop-in
-                # on modern Raspberry Pi OS). Same API as the old OPi.GPIO path.
-                import RPi.GPIO as GPIO
-                GPIO.setwarnings(False)
-                GPIO.setmode(GPIO.BCM)
-                for pin in self.pins.values():
-                    GPIO.setup(pin, GPIO.OUT)
-                    GPIO.output(pin, GPIO.LOW)
-                self._pwm = {}
-                for name, pin in self.pins.items():
-                    pwm = GPIO.PWM(pin, 50)
-                    pwm.start(7.5)
-                    self._pwm[name] = pwm
-            except Exception as e:
-                print(f"[WARNING] GPIO init failed: {e}. Entering mock mode.")
-                self.mock = True
-        print("[WARNING] Servos share MicroUSB power. Only one moves at a time.")
+                subprocess.run(
+                    ["sudo", "sh", "-c",
+                     f"[ -d {_PWM0} ] || (echo 0 > {_PWMCHIP}/export; sleep 0.3); "
+                     f"chmod -R a+rw {_PWM0} 2>/dev/null; "
+                     f"echo {_PERIOD_NS} > {_PWM0}/period; "
+                     f"echo 0 > {_PWM0}/duty_cycle; "
+                     f"echo 1 > {_PWM0}/enable"],
+                    timeout=6, check=False,
+                )
+                self._hw = os.path.exists(_PWM0)
+            except Exception as e:  # noqa: BLE001
+                print(f"[WARNING] Hardware PWM init failed: {e}. Head servo off.")
+                self._hw = False
+        print("[Servo] head hardware-PWM: " + ("ready" if self._hw else "off"))
         if not self._worker_started:
             asyncio.create_task(self._movement_worker())
             self._worker_started = True
         return self
+
+    def _write(self, attr: str, value) -> None:
+        try:
+            with open(f"{_PWM0}/{attr}", "w") as f:
+                f.write(str(int(value)))
+        except OSError:
+            pass
+
+    @staticmethod
+    def _angle_to_ns(angle: float) -> int:
+        return int(max(_MIN_NS, min(_MAX_NS, _CENTER_NS + angle * _NS_PER_DEG)))
 
     async def move(self, name, angle, duration=0.5):
         if name not in self.pins:
@@ -82,7 +103,6 @@ class ServoController:
             print(f"[Servo] {name} -> {angle}")
             await asyncio.sleep(duration)
             return
-        # In non-mock mode, wait for worker to process
         while self.moving:
             await asyncio.sleep(0.01)
 
@@ -90,42 +110,41 @@ class ServoController:
         while True:
             name, angle, duration = await self.queue.get()
             if self.mock:
-                # Mock mode handles movement synchronously in move()
                 self.moving = True
                 await asyncio.sleep(0.3)
                 self.moving = False
                 continue
             self.moving = True
             try:
-                duty = 7.5 + (angle / 90.0) * 5.0
-                duty = max(2.5, min(12.5, duty))
-                if hasattr(self, "_pwm") and name in self._pwm:
-                    self._pwm[name].ChangeDutyCycle(duty)
-                    await asyncio.sleep(duration)
-                    self._pwm[name].ChangeDutyCycle(0)
-            except Exception as e:
+                # Only the head is on hardware PWM; arm pins have no channel here.
+                if self._hw and name == "head":
+                    target = self._angle_to_ns(angle)
+                    start = self._last_ns
+                    # Ramp in ~1.3°/step so the head pans smoothly, then release
+                    # (duty 0) so it draws nothing at rest.
+                    steps = max(1, int(abs(target - start) / 15_000))
+                    for k in range(1, steps + 1):
+                        self._write("duty_cycle", start + (target - start) * k / steps)
+                        await asyncio.sleep(0.02)
+                    self._last_ns = target
+                    await asyncio.sleep(max(0.0, duration - 0.2))
+                    self._write("duty_cycle", 0)   # release: no holding current
+            except Exception as e:  # noqa: BLE001
                 print(f"[ERROR] Servo movement failed: {e}")
             await asyncio.sleep(0.3)
             self.moving = False
 
     async def look(self, offset_x: float):
-        """Point the head at a face. offset_x in [-1, 1] (0 = centered).
-
-        Sets the head base position used as the reference for emotion gestures.
-        Small changes within the deadzone are ignored to avoid jitter.
-        """
+        """Point the head at a face. offset_x in [-1, 1] (0 = centered)."""
         target = max(-self.MAX_PAN, min(self.MAX_PAN, round(offset_x * self.MAX_PAN)))
         if abs(target - self.head_base) < self.PAN_DEADZONE:
             return
         self.head_base = target
-        await self.move("head", target, 0.3)
+        await self.move("head", target, 0.8)
 
     async def animate(self, emotion):
-        # Conversational emotion gesture. Expressed with the ARMS only: the head
-        # stays on its gaze base (it pans, so it's reserved for looking at the
-        # face — turning it away to "act" an emotion would break eye contact).
-        # Each gesture raises into the pose, holds, then returns the arms to
-        # rest, so arms never get "stuck" in a pose between gestures.
+        # Emotion gestures are arm poses; arms are no-ops on this rig, so this
+        # simply does nothing (kept so the WS `servo` message stays handled).
         poses = {
             "happy": [("right_arm", 45)],
             "sad": [("left_arm", -20)],
@@ -138,21 +157,12 @@ class ServoController:
         for servo, angle in pose:
             await self.move(servo, angle, 0.4)
         if pose:
-            await asyncio.sleep(0.4)  # hold the expression briefly
+            await asyncio.sleep(0.4)
             for servo, _ in pose:
-                await self.move(servo, 0, 0.4)  # back to rest
+                await self.move(servo, 0, 0.4)
 
     async def react(self, emotion):
-        """Small, brief acknowledgement of an emotion change.
-
-        The head only pans (horizontal), so the channel depends on valence:
-        - positive (happy/surprised): an ARM gesture — a horizontal head wiggle
-          would read as shaking 'no' and contradict the positive feeling;
-        - negative (sad/angry): a head SHAKE ('no') — an apt, legible cue on a
-          pan-only head (slow = melancholy, sharper = disapproval);
-        - fear: an arm recoil.
-        The head always returns to its tracked gaze base afterward.
-        """
+        """Brief acknowledgement of an emotion change (head shake on negatives)."""
         if emotion == "happy":
             await self._arm_bob("right_arm", 30)
         elif emotion == "surprised":
@@ -160,25 +170,25 @@ class ServoController:
         elif emotion == "fear":
             await self._arm_bob("left_arm", -12)
         elif emotion == "sad":
-            await self._head_shake(amplitude=8, dur=0.35)    # slow -> melancholy
+            await self._head_shake(amplitude=8, dur=0.35)
         elif emotion == "angry":
-            await self._head_shake(amplitude=12, dur=0.18)   # sharper -> disapproval
-        # neutral / unknown -> no reaction
+            await self._head_shake(amplitude=12, dur=0.18)
 
     async def _arm_bob(self, arm, angle):
         await self.move(arm, angle, 0.3)
-        await self.move(arm, 0, 0.3)  # back to rest
+        await self.move(arm, 0, 0.3)
 
     async def _head_shake(self, amplitude, dur, cycles=2):
         for _ in range(cycles):
             await self.move("head", self.head_base + amplitude, dur)
             await self.move("head", self.head_base - amplitude, dur)
-        await self.move("head", self.head_base, dur)  # settle back on the gaze base
+        await self.move("head", self.head_base, dur)
 
     async def idle_tick(self):
-        """One idle 'breath': nudge the head a few degrees around its base."""
-        drift = random.randint(-self.IDLE_DRIFT, self.IDLE_DRIFT)
-        await self.move("head", self.head_base + drift, 0.4)
+        """One idle 'look around': a clear wide swing, alternating sides."""
+        self._idle_dir = -getattr(self, "_idle_dir", -1)
+        drift = self._idle_dir * random.randint(self.IDLE_DRIFT // 2, self.IDLE_DRIFT)
+        await self.move("head", self.head_base + drift, 0.8)
 
     async def idle_loop(self):
         """Background loop adding subtle life while idle. Runs until cancelled."""
@@ -188,12 +198,6 @@ class ServoController:
                 await self.idle_tick()
 
     def close(self):
-        if not self.mock:
-            try:
-                import RPi.GPIO as GPIO
-                if hasattr(self, "_pwm"):
-                    for pwm in self._pwm.values():
-                        pwm.stop()
-                GPIO.cleanup()
-            except Exception:
-                pass
+        if self._hw:
+            self._write("duty_cycle", 0)
+            self._write("enable", 0)
