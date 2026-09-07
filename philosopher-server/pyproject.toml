@@ -33,7 +33,9 @@ dependencies = [
     # fresh install works on modern toolchains. See HARDWARE_RUNBOOK (Trixie note).
     "face_recognition_models>=0.3.0",
     "setuptools<81",
-    "opencv-python-headless>=4.9.0",  # headless: server is display-less, avoids the libGL dep
+    # headless: server is display-less (avoids libGL). Pinned <5: opencv 5.x dropped
+    # the bundled haar cascade (cv2.data) that the vision presence gate relies on.
+    "opencv-python-headless>=4.9,<5",
     "Pillow>=10.0.0",
 ]
 

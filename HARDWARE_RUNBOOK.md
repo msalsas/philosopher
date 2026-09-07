@@ -81,9 +81,11 @@ neural, edge=online); install the matching pip extra: `pip install -e ".[tts-kok
 or `".[tts-edge]"`.
 
 ### 2. dlib / face_recognition
-On x86_64 Linux there are normal PyPI wheels — no source build:
+On x86_64, `pip install dlib` still **compiles from source** (there is no current
+PyPI wheel), which needs the `cmake` + `build-essential` from step 1 and takes a
+few minutes:
 ```bash
-pip install dlib face_recognition
+pip install dlib face_recognition   # dlib compiles (~5 min); cmake/build-essential required
 ```
 The stale `face_recognition` wrapper needs `pkg_resources` (removed in
 setuptools≥81) and its ~100 MB model blobs — both pinned in `pyproject.toml`, so a
