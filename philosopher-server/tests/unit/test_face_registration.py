@@ -43,7 +43,7 @@ async def ctx(tmp_dir):
 async def test_extract_name_short_reply(ctx):
     # Simulate face being registered during conversation
     await ctx.memory.long._update_face("f1", None)
-    state = AgentState(user_message="Soy Juan", face_id="f1", is_new_face=True)
+    state = AgentState(user_message="Soy Juan", face_id="f1", expect_name=True)
     await background_extract_name(state, ctx)
     face = await ctx.memory.long.get_face("f1")
     assert face["name"] == "Juan"
@@ -53,7 +53,7 @@ async def test_extract_name_short_reply(ctx):
 async def test_extract_name_too_long(ctx):
     await ctx.memory.long._update_face("f2", None)
     state = AgentState(
-        user_message="Me llamo Juan Carlos Rodriguez", face_id="f2", is_new_face=True,
+        user_message="Me llamo Juan Carlos Rodriguez", face_id="f2", expect_name=True,
     )
     await background_extract_name(state, ctx)
     face = await ctx.memory.long.get_face("f2")
@@ -61,8 +61,9 @@ async def test_extract_name_too_long(ctx):
 
 
 @pytest.mark.asyncio
-async def test_extract_name_not_new_face(ctx):
-    state = AgentState(user_message="Juan", face_id="f3", is_new_face=False)
+async def test_extract_name_not_expected(ctx):
+    # Name wasn't asked last turn (expect_name False) → don't store noise as a name.
+    state = AgentState(user_message="Juan", face_id="f3", expect_name=False)
     await background_extract_name(state, ctx)
     face = await ctx.memory.long.get_face("f3")
     assert face is None
@@ -89,7 +90,7 @@ async def test_dedup_merges_same_person(ctx):
     # Same person, face drifted: encodings within merge_band → fold fresh into known.
     ref = np.linspace(0, 1, 128)
     vp = await _seed_two_faces(ctx, fresh_enc=ref + 0.001, known_enc=ref)
-    state = AgentState(user_message="Soy Pedro", face_id="fresh", is_new_face=True)
+    state = AgentState(user_message="Soy Pedro", face_id="fresh", expect_name=True)
     await background_extract_name(state, ctx)
 
     assert await ctx.memory.long.get_face("fresh") is None      # duplicate removed
@@ -102,7 +103,7 @@ async def test_dedup_keeps_namesake_separate(ctx):
     # Different people who share the name: encodings far apart → keep both.
     ref = np.linspace(0, 1, 128)
     vp = await _seed_two_faces(ctx, fresh_enc=ref + 5.0, known_enc=ref)
-    state = AgentState(user_message="Soy Pedro", face_id="fresh", is_new_face=True)
+    state = AgentState(user_message="Soy Pedro", face_id="fresh", expect_name=True)
     await background_extract_name(state, ctx)
 
     assert (await ctx.memory.long.get_face("fresh"))["name"] == "Pedro"  # kept + labeled
@@ -117,7 +118,7 @@ async def test_node_store_logs_background_failure(ctx, caplog, monkeypatch):
         raise RuntimeError("db exploded")
 
     monkeypatch.setattr(ctx.memory.long, "get_face", boom)
-    state = AgentState(user_message="Soy Ana", face_id="fX", is_new_face=True,
+    state = AgentState(user_message="Soy Ana", face_id="fX", expect_name=True,
                        formatted="hola")
 
     with caplog.at_level("ERROR", logger="philosopher.core.nodes"):

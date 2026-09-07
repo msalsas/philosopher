@@ -2,7 +2,7 @@
 
 ## Que es Philosopher
 
-Philosopher es un peluche inteligente con el que puedes hablar. Tiene personalidad propia, recuerda a las personas que le visitan, detecta emociones por la cara y la voz, mueve cabeza y brazos con servos, y responde con voz natural en espanol. No es un simple altavoz con comandos: es un companero conversacional que evoluciona con cada interaccion.
+Philosopher es un peluche inteligente con el que puedes hablar. Tiene personalidad propia, recuerda a las personas que le visitan, detecta emociones por la cara, mueve la cabeza con un servo, y responde con voz natural en espanol. No es un simple altavoz con comandos: es un companero conversacional que evoluciona con cada interaccion.
 
 ---
 
@@ -26,18 +26,20 @@ Philosopher es un peluche inteligente con el que puedes hablar. Tiene personalid
 |  - Gestiona la personalidad (como responde)                      |
 |  - Gestiona la memoria a corto y largo plazo                     |
 |  - Orquesta el pipeline conversacional con LangGraph             |
-|  - Expone una API REST para que el peluche se conecte            |
+|  - Expone un WebSocket (tiempo real) para el peluche; HTTP para   |
+|    diagnostico                                                   |
 +------------------------------------------------------------------+
                               ^
-                              | HTTP (WiFi/Ethernet)
+                              | WebSocket (WiFi)
                               v
 +------------------------------------------------------------------+
 |  CAPA 3: Raspberry Pi Zero WH dentro del peluche                            |
 |  El "cuerpo" del sistema. El hardware fisico del juguete.        |
-|  - Camara USB: ve caras y detecta emociones                      |
-|  - Microfono USB: escucha y transcribe voz a texto (STT)         |
-|  - Altavoz: reproduce la respuesta en voz (TTS)                  |
-|  - 3 servos: mueven la cabeza y los 2 brazos                    |
+|  - Camara CSI: captura imagen (el server ve cara y emocion)       |
+|  - Microfono USB: captura voz (el server la transcribe: STT)      |
+|  - Altavoz: reproduce el audio WAV que sintetiza el server (TTS)  |
+|  - Servo de cabeza (los brazos existen en el mapa de pines pero  |
+|    estan deshabilitados en este montaje)                         |
 +------------------------------------------------------------------+
 ```
 
@@ -198,13 +200,11 @@ Recuerdo: A Maria le gusta hablar de musica.
 
 **Simultaneamente a la voz, el peluche se mueve:**
 
-- **Servos:**
-  - La cabeza se inclina ligeramente (movimiento natural)
-  - Los brazos se mueven segun la emocion:
-    - Feliz: levanta un brazo en gesto alegre
-    - Triste: baja la cabeza y un brazo
-    - Sorprendido: levanta ambos brazos y la cabeza
-    - Neutral: movimiento suave de cabeza
+- **Servo de cabeza:**
+  - Sigue la cara con la mirada (gaze) y hace un leve "mirar alrededor" en reposo
+  - En negativos (triste/enfadado) niega ligeramente con la cabeza
+  - Los brazos estan en el mapa de pines pero deshabilitados en este montaje
+    (evitan el brownout del rail de 5V durante la respuesta)
 
 **El usuario ve y oye al peluche responder de forma natural.**
 
@@ -225,7 +225,7 @@ El ciclo se repite:
 ```
 Maria: "Hola Philosopher, como estas hoy?"
 Peluche: "Hola Maria! Me alegra verte con esa sonrisa. Toby ya te ha sacado a pasear hoy?"
-         [levanta brazo derecho en gesto alegre]
+         [sigue a Maria con la mirada]
 
 Maria: "Si, fuimos al parque esta manana."
 Peluche: "El parque... que buen lugar para despejar la mente. Toby disfruta corriendo?"
@@ -301,8 +301,9 @@ Todas estan en espanol pero el sistema soporta multi-idioma. Para anadir un idio
 - Responde por voz con animaciones
 
 ### Modo Servidor API
-- El servidor expone una API REST
-- Cualquier cliente (no solo el peluche) puede enviar mensajes por HTTP
+- El peluche habla por WebSocket (el camino en tiempo real); ademas hay una
+  API HTTP `/chat` para diagnostico
+- Cualquier cliente puede enviar mensajes por HTTP para pruebas
 - Permite integrar Philosopher con apps web, movil, etc.
 
 ### Modo Mock
@@ -371,7 +372,7 @@ El sistema esta disenado para degradarse gracefulmente - si algo falla, lo demas
 [Raspberry Pi Zero WH] --> recibe respuesta de texto
       |
       +-->[TTS] --> reproduce voz por altavoz
-      +-->[Servos] --> mueve cabeza y brazos
+      +-->[Servo] --> mueve la cabeza (gaze + idle)
       |
       v
 [Usuario oye y ve la respuesta]

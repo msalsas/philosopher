@@ -5,7 +5,7 @@
 > WebSocket protocol, conventions, gotchas, and the full Reference (module map,
 > HTTP API, personality YAML, memory schema, `.env`, data-flow).
 
-`philosopher-server` is the brain (Raspberry Pi 4): STT (`faster-whisper`), vision
+`philosopher-server` is the brain (runs on a laptop): STT (`faster-whisper`), vision
 (`face_recognition` + FER+ ONNX), TTS (Piper subprocess), the LangGraph pipeline,
 memory, and an external-LLM proxy. WebSocket (`/ws`) is the real path; HTTP `/chat`
 is the diagnostics fallback.

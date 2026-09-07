@@ -1,7 +1,7 @@
 # Philosopher Server
 
 The **brain** of the Philosopher conversational AI — personality, dual memory, and
-emotional awareness. Runs on a **Raspberry Pi 4 (4GB)** and does **all** the
+emotional awareness. Runs on a **laptop** (a real CPU) and does **all** the
 compute: STT, vision, TTS, the LangGraph pipeline, memory, and proxying an external
 OpenAI-compatible LLM. The plush-toy client (`philosopher-toy`, a 512 MB Raspberry Pi Zero WH)
 is a thin I/O node that talks to this server over WebSocket.

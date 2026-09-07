@@ -30,6 +30,10 @@ class _StubVision:
 
 def _build_client(tmp_path, monkeypatch) -> TestClient:
     monkeypatch.setenv("PHILOSOPHER_MEMORY_DB_PATH", str(tmp_path / "e2e.db"))
+    # Hermetic: get_settings() calls load_dotenv(), so a dev `.env` with the wake
+    # gate enabled would otherwise gate the reply and hang this test. This path
+    # exercises the direct (always-answer) flow.
+    monkeypatch.setenv("PHILOSOPHER_WAKE_ENABLED", "false")
     get_settings.cache_clear()
 
     orch = Orchestrator()

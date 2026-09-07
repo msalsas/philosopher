@@ -1,7 +1,7 @@
 """USB microphone capture with energy-based VAD.
 
 Audio input goes through `arecord` (a subprocess), not PyAudio: on the 512 MB
-Banana Pi, PyAudio's device enumeration probes every ALSA/JACK PCM and takes
+Pi Zero WH, PyAudio's device enumeration probes every ALSA/JACK PCM and takes
 minutes — and intermittently pegs the CPU until the board hangs. `arecord`
 opens the device instantly and, via the ALSA `plug` plugin, resamples to the
 target rate for us, so no software downsampling is needed either.

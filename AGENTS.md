@@ -7,7 +7,7 @@
 > pointer so there is a single source of truth.
 
 Quick orientation: Philosopher is a conversational AI plush toy — two Python
-projects (`philosopher-server`, the brain on a Raspberry Pi 4; `philosopher-toy`,
+projects (`philosopher-server`, the brain on a laptop; `philosopher-toy`,
 a zero-ML I/O client on a 512 MB Raspberry Pi Zero WH) talking over WebSocket, plus an
 external OpenAI-compatible LLM. All AI (STT, vision, TTS, LangGraph, memory) runs
 on the server.
