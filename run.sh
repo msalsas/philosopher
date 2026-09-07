@@ -44,6 +44,12 @@ server_up() { curl -s --max-time 3 "$HEALTH" -o /dev/null 2>/dev/null; }
 
 start_server() {
   if server_up; then echo "[server] ya está corriendo"; return; fi
+  # Ensure the ML models are present (idempotent: skips fast when already cached,
+  # downloads on the first run). Kokoro in particular is NOT auto-fetched at
+  # startup, so without this the toy would degrade to text-only on a fresh clone.
+  echo "[server] comprobando modelos (descarga solo la primera vez)..."
+  ( cd "$SERVER_DIR" && python scripts/download_models.py ) \
+    || echo "[server] ⚠ prefetch de modelos falló; el server arranca igual y degrada lo que falte (ver /health)"
   echo "[server] arrancando ($SERVER_DIR)..."
   ( cd "$SERVER_DIR" && nohup python -m philosopher.main --server >"$SERVER_LOG" 2>&1 & disown )
   for _ in $(seq 1 25); do sleep 2; server_up && { echo "[server] listo  (log: $SERVER_LOG)"; return; }; done
