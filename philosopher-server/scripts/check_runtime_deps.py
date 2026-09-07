@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Readiness check for the Philosopher server on real hardware (RPi4).
+"""Readiness check for the Philosopher server (the host that runs the AI).
 
 Verifies the things that DON'T crash the socket but make it "run and do nothing":
-Python libs (incl. dlib, which has no ARM64 PyPI wheel), the `piper` system
-binary, the OpenCV Haar cascade, and that the three ML models are on disk. Each
-check is independent and reported; exit code is non-zero if any REQUIRED check
-failed (missing models are warnings, since the runtime auto-downloads them).
+Python libs (incl. dlib), the active TTS provider's system deps (piper binary,
+or kokoro/edge), the OpenCV Haar cascade, and that the ML models are on disk.
+Each check is independent and reported; exit code is non-zero if any REQUIRED
+check failed (missing models are warnings, since the runtime auto-downloads them).
 
 Run from the philosopher-server directory, on the Pi:
 
@@ -69,9 +69,23 @@ def main() -> int:
     )
 
     print("\n== System binaries ==")
-    required_ok &= _check_binary(
-        "piper", "TTS engine; install the piper binary separately on the Pi",
-    )
+    from philosopher.config.settings import get_settings
+    provider = get_settings().tts.provider
+    if provider == "piper":
+        required_ok &= _check_binary(
+            "piper", "TTS engine; install the piper binary separately")
+    elif provider == "kokoro":
+        required_ok &= _check_binary(
+            "espeak-ng", "kokoro TTS phonemizer; apt install espeak-ng")
+        required_ok &= _check_import(
+            "kokoro_onnx", "kokoro TTS; pip install -e '.[tts-kokoro]'")
+    elif provider == "edge":
+        required_ok &= _check_binary(
+            "ffmpeg", "edge TTS mp3->wav; apt install ffmpeg")
+        required_ok &= _check_import(
+            "edge_tts", "edge TTS; pip install -e '.[tts-edge]'")
+    else:
+        print(f"{WARN} unknown TTS provider '{provider}' — skipping TTS dep check")
 
     print("\n== OpenCV assets ==")
     try:
@@ -90,9 +104,15 @@ def main() -> int:
         s = get_settings()
         emo = s.vision.emotion_model_path or _DEFAULT_MODEL_PATH
         _check_file("FER+ emotion model", emo, required=False)
-        voice_path = s.tts.model_path or PiperTTS._default_model_path(s.tts.voice)
-        _check_file("Piper voice", voice_path, required=False)
-        _check_file("Piper voice config", voice_path + ".json", required=False)
+        if s.tts.provider == "piper":
+            voice_path = s.tts.model_path or PiperTTS._default_model_path(s.tts.voice)
+            _check_file("Piper voice", voice_path, required=False)
+            _check_file("Piper voice config", voice_path + ".json", required=False)
+        elif s.tts.provider == "kokoro":
+            _check_file("Kokoro model", "./data/kokoro/kokoro-v1.0.onnx", required=False)
+            _check_file("Kokoro voices", "./data/kokoro/voices-v1.0.bin", required=False)
+        elif s.tts.provider == "edge":
+            print("[info] edge TTS is online — no local voice model")
         print(f"[info] Whisper STT size = '{s.stt.model}' (cached under ~/.cache/huggingface)")
     except Exception as exc:  # noqa: BLE001
         print(f"{WARN} could not resolve model paths from settings: {exc}")
