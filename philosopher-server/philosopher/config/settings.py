@@ -105,17 +105,40 @@ class VisionSettings(BaseSettings):
 class TTSSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PHILOSOPHER_TTS_")
     model_path: str = ""
-    voice: str = "es_ES-carlfm-x_low"
+    # Voice + lang default to "" = auto: derived from PHILOSOPHER_LANGUAGE +
+    # provider (see _DEFAULTS / resolved_voice / resolved_lang), so switching
+    # language is a single knob. Set them only to force a specific voice.
+    voice: str = ""
     enabled: bool = True
-    # "piper" (local, offline) or "edge" (Microsoft neural voices, needs
-    # internet + ffmpeg -- far more natural). Piper stays the offline fallback.
-    provider: str = "piper"
+    # "kokoro" (local neural, shipped), "piper" (local, offline), or "edge"
+    # (Microsoft online neural). See .env.example for what each needs.
+    provider: str = "kokoro"
     # edge-tts prosody (used only when provider="edge").
     rate: str = "+0%"
     pitch_hz: str = "+0Hz"
-    # kokoro params (used only when provider="kokoro").
-    lang: str = "es"
+    # kokoro lang (espeak code); "" = auto from PHILOSOPHER_LANGUAGE.
+    lang: str = ""
     speed: float = 1.0
+
+    # Per-(provider, app-language) default (voice, tts-lang). tts-lang matters
+    # only for kokoro (an espeak code: es / en-us); piper/edge ignore it.
+    _DEFAULTS = {
+        "kokoro": {"es": ("em_santa", "es"), "en": ("am_adam", "en-us")},
+        "piper": {"es": ("es_ES-carlfm-x_low", ""), "en": ("en_US-lessac-medium", "")},
+        "edge": {"es": ("es-ES-AlvaroNeural", ""), "en": ("en-US-GuyNeural", "")},
+    }
+
+    def _default_pair(self, language: str) -> tuple[str, str]:
+        by_lang = self._DEFAULTS.get(self.provider, self._DEFAULTS["kokoro"])
+        return by_lang.get(language, by_lang.get("es", ("", "")))
+
+    def resolved_voice(self, language: str) -> str:
+        """The voice to use: explicit `voice`, else the language/provider default."""
+        return self.voice or self._default_pair(language)[0]
+
+    def resolved_lang(self, language: str) -> str:
+        """The kokoro espeak lang: explicit `lang`, else the language default."""
+        return self.lang or self._default_pair(language)[1]
     # Piper synthesis params (defaults = piper's own defaults). Higher
     # noise_scale = livelier pitch, higher noise_w = livelier rhythm,
     # length_scale <1 = faster speech.

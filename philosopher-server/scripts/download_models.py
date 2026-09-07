@@ -58,7 +58,8 @@ def fetch_piper() -> bool:
     print("== Piper TTS voice ==")
     try:
         from philosopher.tts.engine import PiperTTS
-        voice = get_settings().tts.voice
+        s = get_settings()
+        voice = s.tts.resolved_voice(s.personality.language)
         # Constructing PiperTTS (non-mock, empty path) triggers the download.
         tts = PiperTTS(voice=voice)
         ok = Path(tts.model_path).exists()

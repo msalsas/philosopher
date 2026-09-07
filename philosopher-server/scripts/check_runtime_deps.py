@@ -105,7 +105,8 @@ def main() -> int:
         emo = s.vision.emotion_model_path or _DEFAULT_MODEL_PATH
         _check_file("FER+ emotion model", emo, required=False)
         if s.tts.provider == "piper":
-            voice_path = s.tts.model_path or PiperTTS._default_model_path(s.tts.voice)
+            voice = s.tts.resolved_voice(s.personality.language)
+            voice_path = s.tts.model_path or PiperTTS._default_model_path(voice)
             _check_file("Piper voice", voice_path, required=False)
             _check_file("Piper voice config", voice_path + ".json", required=False)
         elif s.tts.provider == "kokoro":

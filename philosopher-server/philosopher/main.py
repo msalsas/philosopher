@@ -89,9 +89,12 @@ def main():
         )
         # Let the name-registration node reach vision for biometric dedup.
         orch.graph.ctx.vision = orch.vision
+        # Voice + kokoro lang follow PHILOSOPHER_LANGUAGE unless explicitly set.
+        _lang = settings.personality.language
+        _voice = settings.tts.resolved_voice(_lang)
         if settings.tts.provider == "edge":
             orch.tts = EdgeTTS(
-                voice=settings.tts.voice,
+                voice=_voice,
                 rate=settings.tts.rate,
                 pitch_hz=settings.tts.pitch_hz,
                 pitch=settings.tts.pitch,
@@ -99,8 +102,8 @@ def main():
             )
         elif settings.tts.provider == "kokoro":
             orch.tts = KokoroTTS(
-                voice=settings.tts.voice,
-                lang=settings.tts.lang,
+                voice=_voice,
+                lang=settings.tts.resolved_lang(_lang),
                 speed=settings.tts.speed,
                 pitch=settings.tts.pitch,
                 mock=mock,
@@ -108,7 +111,7 @@ def main():
         else:
             orch.tts = PiperTTS(
                 model_path=settings.tts.model_path,
-                voice=settings.tts.voice,
+                voice=_voice,
                 length_scale=settings.tts.length_scale,
                 noise_scale=settings.tts.noise_scale,
                 noise_w=settings.tts.noise_w,
