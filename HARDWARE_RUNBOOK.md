@@ -6,8 +6,8 @@
 >
 > *(History: the toy was first prototyped on a Banana Pi M2 Zero clone, abandoned
 > because its onboard WiFi was unusable. That whole bring-up — gadget serial,
-> Allwinner H3 SUNXI GPIO, OV5640 DVP camera, I2S amp — no longer applies and
-> lives only in project memory. Everything below is the genuine Pi Zero WH.)*
+> Allwinner H3 SUNXI GPIO, OV5640 DVP camera, I2S amp — no longer applies and is
+> not covered here. Everything below is the genuine Pi Zero WH.)*
 
 ---
 
@@ -244,8 +244,7 @@ converses.**
   startup.
 - ⚠️ **Power / brownout:** the mic + amp draw from the Pi's 5 V rail. Running both off
   a **bus-powered USB hub** browns out the rail mid-conversation (the toy reboots).
-  Fix = a **powered USB hub** and/or a solid **5 V / 2–3 A** supply. See
-  `memory/brownout-usb-audio-power`.
+  Fix = a **powered USB hub** and/or a solid **5 V / 2–3 A** supply.
 
 ### B.4 Head servo — BCM12 hardware PWM
 The head servo runs on **hardware PWM** (PWM0 on GPIO12) via the sysfs interface —

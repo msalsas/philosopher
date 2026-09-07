@@ -51,7 +51,7 @@ La razon de esta separacion es flexibilidad: puedes cambiar el modelo de IA sin 
 
 ### Paso 0: Encendido y Conexion
 
-1. Enciendes el peluche (se alimenta por USB-C o bateria)
+1. Enciendes el peluche (se alimenta por micro-USB o bateria)
 2. La Raspberry Pi Zero WH arranca, se conecta al WiFi
 3. Se conecta al servidor Philosopher por la red
 4. El servidor verifica que puede hablar con el LLM
@@ -88,7 +88,7 @@ La razon de esta separacion es flexibilidad: puedes cambiar el modelo de IA sin 
 
 **Si hablas desde otra habitacion, de espaldas, o con poca luz:**
 
-- El microfono te oye igualmente y transcribe tu voz
+- El microfono te oye igualmente (el servidor transcribe tu voz)
 - Como la camara no ve tu cara, no sabe quien eres ni que emocion tienes
 - **Pero te responde de todas formas** - la conversacion fluye normalmente
 - La unica diferencia: no recupera recuerdos personales asociados a tu cara, y la personalidad no adapta el tono a una emocion especifica
@@ -105,7 +105,7 @@ La razon de esta separacion es flexibilidad: puedes cambiar el modelo de IA sin 
 - El microfono esta siempre escuchando en segundo plano
 - Usa deteccion de actividad de voz (VAD): detecta cuando empiezas a hablar y cuando paras
 - No necesitas pulsar ningun boton para hablar - es conversacion natural
-- Convierte el audio a texto usando reconocimiento de voz en espanol
+- Envia el audio al servidor por WebSocket; es el servidor quien lo transcribe a texto (STT, en espanol) con faster-whisper
 - Si no entiende bien, pide amablemente que repitas
 
 **Ejemplo:**
@@ -116,7 +116,8 @@ La razon de esta separacion es flexibilidad: puedes cambiar el modelo de IA sin 
 
 ### Paso 3: El Servidor Procesa (el cerebro trabaja)
 
-**El Raspberry Pi Zero WH envia al servidor:**
+**El peluche solo ha enviado audio (PCM) y una imagen (JPEG).** El servidor los
+procesa (STT + vision) y arma internamente el contexto del turno:
 ```json
 {
   "message": "Hola Philosopher, como estas hoy?",
@@ -181,20 +182,13 @@ Recuerdo: A Maria le gusta hablar de musica.
 
 ### Paso 4: Respuesta por Voz (TTS - Text to Speech)
 
-**El servidor responde al Raspberry Pi Zero WH:**
-```json
-{
-  "response": "Hola Maria! Me alegra verte con esa sonrisa. Toby ya te ha sacado a pasear hoy?",
-  "emotion": "happy",
-  "turn": 3
-}
-```
+**El servidor genera la respuesta frase a frase (streaming).** Por cada frase:
 
-- El Raspberry Pi Zero WH recibe el texto
-- Limpia marcadores de accion (asteriscos, etc.)
-- Divide en trozos si es muy largo (mas de 400 caracteres)
-- Sintetiza voz en espanol usando TTS (Edge TTS - voz masculina "Alvaro")
-- Reproduce por el altavoz conectado
+- Sintetiza la voz en el servidor (TTS: piper por defecto, o kokoro/edge segun
+  configuracion) y limpia marcadores de accion (asteriscos)
+- Envia al peluche, por WebSocket, el texto + un clip de audio WAV de esa frase
+- El peluche **solo reproduce** el WAV por el altavoz segun va llegando
+  (reproduccion progresiva: empieza a hablar sin esperar a toda la respuesta)
 
 ---
 
@@ -313,26 +307,26 @@ Todas estan en espanol pero el sistema soporta multi-idioma. Para anadir un idio
 - Simula servos, camara y microfono
 - Permite programar y probar sin tener el peluche fisico
 
-### Modo Texto (fallback)
-- Si el microfono no funciona, puedes escribir por teclado
-- Util para pruebas y depuracion
+### Modo Texto (solo servidor, para pruebas)
+- El servidor tiene un modo terminal (`python -m philosopher.main`) donde escribes
+  por teclado en vez de hablar
+- Util para probar personalidad/memoria/LLM sin el peluche
 
 ---
 
-## Eventos del Sistema (17 tipos)
+## Eventos del Sistema (bus + dashboard en vivo)
 
-El sistema emite eventos para que diferentes partes se comuniquen sin acoplarse:
+El servidor tiene un bus de eventos interno para que distintas partes se comuniquen
+sin acoplarse; hay un dashboard en vivo en `GET /dashboard` que los consume. En la
+practica el orquestador emite estos cuatro:
 
-- `CONVERSATION_STARTED` - Empieza una conversacion nueva
-- `CONVERSATION_ENDED` - La conversacion termina (no detecta cara tras X tiempo)
-- `FACE_DETECTED` / `FACE_RECOGNIZED` / `FACE_NEW` - Eventos de reconocimiento facial
-- `EMOTION_CHANGED` - Cambia la emocion detectada
-- `USER_MESSAGE` / `ASSISTANT_MESSAGE` - Mensajes enviados/recibidos
-- `MEMORY_STORED_SHORT` / `MEMORY_STORED_LONG` - Memoria guardada
-- `LLM_REQUEST` / `LLM_RESPONSE` / `LLM_ERROR` - Comunicacion con el LLM
-- `TTS_STARTED` / `TTS_FINISHED` - Sintesis de voz
-- `SERVO_ANIMATION` - Movimientos fisicos
-- `ERROR` - Errores del sistema
+- `FACE_RECOGNIZED` - se identifica (o se aprende) una cara
+- `EMOTION_DETECTED` - se detecta la emocion de la cara
+- `USER_TEXT` - el audio del usuario se ha transcrito a texto
+- `RESPONSE_READY` - la respuesta completa esta lista y almacenada
+
+(El `EventType` define mas tipos reservados para el futuro, pero estos son los que
+se emiten hoy.)
 
 ---
 
@@ -340,8 +334,8 @@ El sistema emite eventos para que diferentes partes se comuniquen sin acoplarse:
 
 - Si el peluche pierde la conexion con el servidor: intenta reconectar automaticamente
 - Si el servidor no puede hablar con el LLM: devuelve un mensaje de error amable
-- Si el microfono falla: el peluche entra en modo texto (escribe por teclado)
-- Si la camara falla: sigue funcionando sin reconocimiento facial
+- Si el microfono falla: el peluche degrada a un microfono silencioso (no inventa texto); el resto sigue vivo
+- Si la camara falla: sigue funcionando sin reconocimiento facial (responde igual)
 
 El sistema esta disenado para degradarse gracefulmente - si algo falla, lo demas sigue funcionando.
 
@@ -353,13 +347,16 @@ El sistema esta disenado para degradarse gracefulmente - si algo falla, lo demas
 [Usuario se acerca] 
       |
       v
-[Camara] --> detecta cara + emocion
+[Camara] --> capta imagen (JPEG)
       |
       v
-[Microfono] --> escucha voz --> transcribe a texto
+[Microfono] --> capta la voz (VAD) --> audio (PCM)
       |
       v
-[Raspberry Pi Zero WH] --> envia por WiFi al servidor
+[Raspberry Pi Zero WH] --> transmite audio + imagen por WebSocket
+      |
+      v
+[Servidor] --> transcribe (STT) + detecta cara/emocion (vision)
       |
       v
 [Servidor Philosopher]
