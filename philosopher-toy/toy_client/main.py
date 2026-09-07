@@ -1,4 +1,4 @@
-"""Banana Pi client entry point."""
+"""Toy client entry point (Raspberry Pi Zero WH)."""
 from __future__ import annotations
 
 import asyncio

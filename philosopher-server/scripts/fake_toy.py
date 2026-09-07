@@ -4,7 +4,7 @@
 The toy is just I/O, so its whole side of the protocol is a handful of frames.
 This script speaks that protocol (see api/ws_server.py) from a laptop or the Pi
 itself, so you can exercise the real streaming path — perception, STT, LLM
-stream, per-sentence TTS — before the Banana Pi exists.
+stream, per-sentence TTS — before the toy exists.
 
 It plays one "turn":
     1. sends a camera frame      (0x02 JPEG)   -> expect {look}/{servo} back

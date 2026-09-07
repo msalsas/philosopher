@@ -15,4 +15,3 @@ on the server.
 Other docs:
 - **[`CLAUDE.md`](./CLAUDE.md)** — canonical guide (start here).
 - **[`HARDWARE_RUNBOOK.md`](./HARDWARE_RUNBOOK.md)** — bring-up on real devices + smoke checklist.
-- **[`MIGRATION_GUIDE.md`](./MIGRATION_GUIDE.md)** — authoritative v2 design.

@@ -37,9 +37,9 @@ def _pin_env(var: str, default: int) -> int | None:
 class ServoController:
     """Controls the head servo (hardware PWM). Arms are no-ops on this rig."""
 
-    MAX_PAN = 30          # max head pan (deg) for face tracking
+    MAX_PAN = 10          # max head pan (deg) for face tracking
     PAN_DEADZONE = 5      # ignore gaze changes below this (anti-jitter)
-    IDLE_DRIFT = 30       # idle "look around" amplitude (deg)
+    IDLE_DRIFT = 10       # idle "look around" amplitude (deg)
     IDLE_MIN_INTERVAL = 12.0
     IDLE_MAX_INTERVAL = 30.0
 

@@ -1,7 +1,7 @@
 """WAV audio player via `aplay` (subprocess).
 
-Like capture, playback avoids PyAudio (too heavy / fragile on the 512 MB Banana
-Pi). `aplay` reads a WAV from stdin and auto-detects its format, so a 16 kHz
+Like capture, playback avoids PyAudio (too heavy / fragile on the 512 MB Pi
+Zero WH). `aplay` reads a WAV from stdin and auto-detects its format, so a 16 kHz
 Piper clip plays at the right speed with no output-stream format juggling.
 """
 from __future__ import annotations
