@@ -70,7 +70,7 @@ PHILOSOPHER_MOCK=false    # Set true for dev without hardware
 
 ### 4.1 Servos (`hardware/servos.py`)
 - Pins: head=GPIO 12, left_arm=GPIO 13, right_arm=GPIO 18
-- Library: OPi.GPIO (falls back to mock mode on import error)
+- Head: GPIO 12 on hardware PWM (`/sys/class/pwm/pwmchip0/pwm0`; needs `dtoverlay=pwm,pin=12,func=4` in config.txt), ramped + released at rest (no holding current). Arms (GPIO 13/18) are in the pin map but disabled. Pins overridable via `PHILOSOPHER_SERVO_*_PIN` (0 = off).
 - Emotion animations:
   - `happy`: head +10°, right_arm +45°
   - `sad`: head -10°, left_arm -20°

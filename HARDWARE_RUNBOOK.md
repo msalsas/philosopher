@@ -318,9 +318,7 @@ revert it) once the board is stable again. The relevant env knobs (added alongsi
   mock for now (needs the CSI sensor driver / custom DT overlay — see **B.4.2**). The
   `/dev/video0` + `/dev/media0` that *do* exist are the **cedrus VPU decoder**, not a
   camera capture device — `media-ctl -p` shows `driver cedrus`, not a sensor.
-- **Servos run on H3 SUNXI pins via bit-banged PWM** (`OPi.GPIO`). `hardware/servos.py` still
-  uses RPi BCM pins (12/13/18) + `GPIO.PWM` — **must be ported to SUNXI + bit-bang**. Full
-  detail in **B.4.3**.
+- **Servos: done on the Pi Zero WH** (this SUNXI/bit-bang plan was for the abandoned Banana Pi). The head runs on GPIO12 **hardware PWM** (`/sys/class/pwm/pwmchip0/pwm0`, needs `dtoverlay=pwm,pin=12,func=4` + `dtparam=audio=off`), ramped + released at rest. See CLAUDE.md.
 - **Speakers are moving to GPIO/I2S** (e.g. MAX98357A DAC → a new ALSA card via DT overlay;
   `AudioPlayer` just retargets the device). I2S also stops drawing from the USB power rail.
 
