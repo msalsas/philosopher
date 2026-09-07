@@ -29,7 +29,7 @@ class PersonalityEngine:
         base = Path(__file__).parent.parent / "config" / "personalities"
         f = base / lang / f"{name}.yaml"
         if not f.exists():
-            f = base / "es" / "filosofo.yaml"
+            f = base / "es" / "philosopher.yaml"
         self._data = yaml.safe_load(f.open(encoding="utf-8"))
         return self._data
 

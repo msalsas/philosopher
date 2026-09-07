@@ -23,7 +23,7 @@ async def ctx(tmp_dir):
         llm=LLMSettings(provider="local", base_url="http://test:1234/v1",
                        model="test-model", max_tokens=100),
         memory=MemorySettings(db_path=str(tmp_dir / "test.db"), short_term_limit=5),
-        personality=PersonalitySettings(personality="filosofo", language="es"),
+        personality=PersonalitySettings(personality="philosopher", language="es"),
     )
     llm = LLMClient(s)
     pe = PersonalityEngine(s.personality)

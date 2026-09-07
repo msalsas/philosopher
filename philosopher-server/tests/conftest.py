@@ -29,7 +29,7 @@ def mock_settings(tmp_dir: Path) -> Settings:
                        api_key="test", model="test-model", max_tokens=100),
         memory=MemorySettings(db_path=str(tmp_dir / "test.db"),
                              short_term_limit=5, similarity_threshold=0.3),
-        personality=PersonalitySettings(personality="filosofo", language="es", name="Test"),
+        personality=PersonalitySettings(personality="philosopher", language="es", name="Test"),
     )
 
 

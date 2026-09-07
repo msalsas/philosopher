@@ -40,7 +40,7 @@ class MemorySettings(BaseSettings):
 
 class PersonalitySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PHILOSOPHER_")
-    personality: str = "filosofo"
+    personality: str = "philosopher"
     name: str = "Philosopher"
     language: str = "es"
     # Wake-word gate (opt-in): toy starts asleep, answers only after the
