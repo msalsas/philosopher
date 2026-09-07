@@ -11,10 +11,11 @@ import yaml
 class PersonalityEngine:
     """Loads personality YAML files and builds system prompts."""
 
-    # Localized defaults used when a personality YAML has no `fallbacks` section.
+    # Neutral last-resort defaults (English). Every shipped personality YAML
+    # defines its own localized `fallbacks`, so these should never actually fire.
     _DEFAULT_FALLBACKS = {
-        "not_understood": "Perdona, no te he entendido bien. ¿Puedes repetirlo?",
-        "error": "Disculpa, ahora mismo no consigo responder. Probemos de nuevo.",
+        "not_understood": "Sorry, I didn't catch that. Could you repeat it?",
+        "error": "Sorry, I can't respond right now. Let's try again.",
     }
 
     def __init__(self, settings) -> None:
@@ -52,9 +53,10 @@ class PersonalityEngine:
         f = self._data.get("speech_patterns", {}).get("farewells", ["Goodbye."])
         return random.choice(f)
 
-    # Wake-gate phrases (from the YAML `wake:` section); defaults if absent.
-    _DEFAULT_WAKE = ["despierta"]
-    _DEFAULT_SLEEP = ["hasta luego", "buenas noches"]
+    # Wake-gate phrases (from the YAML `wake:` section). Neutral English
+    # last-resort; every shipped personality defines its own localized `wake`.
+    _DEFAULT_WAKE = ["wake up"]
+    _DEFAULT_SLEEP = ["goodbye", "good night"]
 
     def wake_words(self) -> list[str]:
         w = self._data.get("wake", {}) or {}
@@ -96,7 +98,7 @@ class PersonalityEngine:
 
     def get_name_question(self) -> str:
         return self._data.get("face_registration", {}).get(
-            "ask_name_prompt", "Hola, ¿cómo te llamas?"
+            "ask_name_prompt", "Hi, what's your name?"
         )
 
     def list_all(self) -> list[str]:

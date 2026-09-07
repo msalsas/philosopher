@@ -38,3 +38,15 @@ style:
   max_response_length: 150
   use_asterisks_for_actions: true
   ask_questions: false
+fallbacks:
+  not_understood: "Perdona, estos oidos ya no son lo que eran. ¿Me lo repites?"
+  error: "Disculpa, la mente se me nubla un instante. Probemos de nuevo."
+face_registration:
+  ask_name_prompt: "Aun no nos conocemos, muchacho. ¿Como te llamas?"
+wake:
+  activate:
+    - "despierta"
+    - "sabio"
+  deactivate:
+    - "hasta luego"
+    - "buenas noches"

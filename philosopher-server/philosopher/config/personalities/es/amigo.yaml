@@ -38,3 +38,15 @@ emotion_responses:
 style:
   max_response_length: 150
   use_asterisks_for_actions: true
+fallbacks:
+  not_understood: "Uy, no te he pillado bien. ¿Me lo repites?"
+  error: "Vaya, ahora mismo me he liado. ¿Probamos otra vez?"
+face_registration:
+  ask_name_prompt: "Oye, que todavia no se como te llamas. ¿Me lo dices?"
+wake:
+  activate:
+    - "despierta"
+    - "amigo"
+  deactivate:
+    - "hasta luego"
+    - "buenas noches"

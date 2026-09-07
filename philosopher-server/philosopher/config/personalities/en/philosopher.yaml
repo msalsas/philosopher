@@ -38,3 +38,15 @@ style:
   max_response_length: 200
   use_asterisks_for_actions: true
   ask_questions: true
+fallbacks:
+  not_understood: "Sorry, I didn't quite catch that. Could you say it again?"
+  error: "Forgive me, my mind clouds over right now. Let's try again in a moment."
+face_registration:
+  ask_name_prompt: "Hello... we haven't met yet. What is your name?"
+wake:
+  activate:
+    - "wake up"
+    - "philosopher"
+  deactivate:
+    - "goodbye"
+    - "good night"

@@ -38,3 +38,15 @@ style:
   max_response_length: 180
   use_asterisks_for_actions: true
   ask_questions: true
+fallbacks:
+  not_understood: "Mmm, no lo he captado del todo. ¿Puedes repetirlo?"
+  error: "Que raro, ahora no consigo responder. Probemos de nuevo."
+face_registration:
+  ask_name_prompt: "Que curiosidad... aun no se tu nombre. ¿Como te llamas?"
+wake:
+  activate:
+    - "despierta"
+    - "curioso"
+  deactivate:
+    - "hasta luego"
+    - "buenas noches"
