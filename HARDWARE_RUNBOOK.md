@@ -40,18 +40,29 @@ changed). **Never `git add` the `data/` dir** — it holds the SQLite memory DB
 with face encodings (biometric data) + transcripts; `.gitignore` already blocks
 it, but don't force it.
 
-**Autostart** with the provided systemd units (run on crash-restart):
+**Autostart.** The **server** runs on the laptop and is *not* a service — start
+it on demand with `./run.sh start` (models take ~1 min to load; no point keeping
+it always resident). The **toy** lives inside the plush, so it *is* a systemd
+service that comes up on boot. Install it once (from the machine that runs
+`run.sh`):
 ```bash
-# RPi4:
-sudo cp ~/philosopher/deploy/philosopher-server.service /etc/systemd/system/
-sudo systemctl enable --now philosopher-server
-# Raspberry Pi Zero WH (add the user to hardware groups first):
-sudo usermod -aG gpio,audio,video $USER
-sudo cp ~/philosopher/deploy/philosopher-toy.service /etc/systemd/system/
-sudo systemctl enable --now philosopher-toy
+# On the Pi: give the toy user hardware access.
+sudo usermod -aG gpio,audio,video <pi-user>
+# From the run.sh host: generate + enable the toy service on the Pi (SSH).
+./run.sh install        # writes /etc/systemd/system/philosopher-toy.service
+./run.sh uninstall      # reverts it
 ```
-Edit `User=`/paths in the unit files to match your install. Put per-device
-settings in a `.env` beside each subproject (also git-ignored).
+`run.sh install` fills the unit with the Pi's local paths/user (nothing
+hardcoded). Per-device settings go in a `.env` beside each subproject (git-ignored).
+
+**Head servo needs hardware PWM** (smooth, no software-PWM tremor). Add to the
+Pi's `/boot/firmware/config.txt`, then reboot:
+```
+dtparam=audio=off              # frees PWM0 (we use USB audio, not the onboard jack)
+dtoverlay=pwm,pin=12,func=4    # GPIO12 -> hardware PWM0
+```
+The toy exports/permits `/sys/class/pwm/pwmchip0/pwm0` at startup via passwordless
+sudo. Redo this config.txt step if you reflash the SD.
 
 ---
 

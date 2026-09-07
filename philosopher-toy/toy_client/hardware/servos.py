@@ -65,7 +65,7 @@ class ServoController:
             # process; passwordless sudo is used once here. Leave it released.
             try:
                 subprocess.run(
-                    ["sudo", "sh", "-c",
+                    ["sudo", "-n", "sh", "-c",
                      f"[ -d {_PWM0} ] || (echo 0 > {_PWMCHIP}/export; sleep 0.3); "
                      f"chmod -R a+rw {_PWM0} 2>/dev/null; "
                      f"echo {_PERIOD_NS} > {_PWM0}/period; "

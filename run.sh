@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
-# Levanta/para Philosopher: el SERVIDOR (en esta máquina) + el TOY (en la Pi por SSH).
+# Start/stop Philosopher: the SERVER (on this machine) + the TOY (on the Pi via SSH).
 #
-# Uso:
-#   ./run.sh start     # arranca servidor y toy (por defecto)
-#   ./run.sh stop      # para ambos
-#   ./run.sh status    # estado de ambos
-#   ./run.sh logs      # tail -f del log del servidor (Ctrl-C para salir)
-#   ./run.sh toylog    # últimas líneas del log del toy (en la Pi)
+# Usage:
+#   ./run.sh start     # start server and toy (default)
+#   ./run.sh stop      # stop both
+#   ./run.sh status    # status of both
+#   ./run.sh logs      # tail -f the server log (Ctrl-C to quit)
+#   ./run.sh toylog    # last lines of the toy log (on the Pi)
+#   ./run.sh install   # autostart the TOY on the Pi (systemd service). The
+#                      #   server is NOT a service: start it with `start`.
+#                      #   uninstall reverts it.
 #
-# Configuración (nada de esto se sube a git):
-#   Crea un fichero `run.local.env` junto a este script (ver run.local.env.example)
-#   o exporta variables de entorno:
-#     PI_HOST        IP/host de la Pi del toy         (OBLIGATORIO)
-#     PI_USER        usuario SSH en la Pi             (por defecto: $USER)
-#     REMOTE_TOY_DIR ruta del toy en la Pi, relativa al home del usuario
-#                    (por defecto: philosopher/philosopher-toy)
+# Config (none of this is committed to git):
+#   Create a `run.local.env` next to this script (see run.local.env.example)
+#   or export environment variables:
+#     PI_HOST        IP/host of the toy's Pi          (REQUIRED)
+#     PI_USER        SSH user on the Pi               (default: $USER)
+#     REMOTE_TOY_DIR toy path on the Pi, relative to the user's home
+#                    (default: philosopher/philosopher-toy)
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Config local (opcional, ignorada por git): IP/usuario propios de tu montaje.
+# Local config (optional, git-ignored): your own host IP/user.
 [ -f "$REPO/run.local.env" ] && . "$REPO/run.local.env"
 
 PI_HOST="${PI_HOST:-}"
@@ -29,7 +32,7 @@ SERVER_LOG="${SERVER_LOG:-/tmp/philosopher-server.log}"
 TOY_LOG="/tmp/toy.log"
 HEALTH="http://localhost:8080/health"
 SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=6"
-# [t]oy_client... evita que pkill -f se auto-elimine (su propia línea contiene el patrón).
+# [t]oy_client... keeps pkill -f from matching its own command line.
 TOYPAT='[t]oy_client.main'
 
 if [ -z "$PI_HOST" ]; then
@@ -47,10 +50,18 @@ start_server() {
   echo "[server] ✗ no respondió a tiempo — revisa $SERVER_LOG"
 }
 
+toy_is_service() { $SSH "$PI_USER@$PI_HOST" "systemctl is-enabled philosopher-toy.service" >/dev/null 2>&1; }
+
 start_toy() {
+  if toy_is_service; then
+    $SSH "$PI_USER@$PI_HOST" "sudo systemctl restart philosopher-toy.service" >/dev/null 2>&1 \
+      && echo "[toy] ✓ servicio (re)arrancado en $PI_HOST" \
+      || echo "[toy] ✗ fallo al (re)arrancar el servicio"
+    return
+  fi
   echo "[toy] arrancando en $PI_USER@$PI_HOST ..."
   $SSH "$PI_USER@$PI_HOST" "pkill -9 -f '$TOYPAT' 2>/dev/null; sleep 1" >/dev/null 2>&1
-  # timeout: el proceso queda con nohup; el ssh se cierra aunque el hijo siga vivo.
+  # timeout: the process survives via nohup; ssh closes even if the child lives on.
   timeout 8 $SSH "$PI_USER@$PI_HOST" \
     "cd '$REMOTE_TOY_DIR' && nohup python3 -u -m toy_client.main >'$TOY_LOG' 2>&1 </dev/null & disown" >/dev/null 2>&1
   sleep 5
@@ -62,11 +73,16 @@ start_toy() {
 }
 
 stop_server() {
-  # patrón sin auto-match para no matar este propio script
+  # pattern without a self-match so it doesn't kill this very script
   pkill -f 'philosopher[.]main --server' 2>/dev/null && echo "[server] parado" || echo "[server] no estaba corriendo"
 }
 
 stop_toy() {
+  if toy_is_service; then
+    $SSH "$PI_USER@$PI_HOST" "sudo systemctl stop philosopher-toy.service" >/dev/null 2>&1 \
+      && echo "[toy] servicio parado" || echo "[toy] (no accesible)"
+    return
+  fi
   $SSH "$PI_USER@$PI_HOST" "pkill -9 -f '$TOYPAT' 2>/dev/null" >/dev/null 2>&1 \
     && echo "[toy] parado" || echo "[toy] (no accesible o no corría)"
 }
@@ -80,11 +96,46 @@ status() {
   fi
 }
 
+# --- Toy autostart (systemd on the Pi) ------------------------------------
+# The SERVER is not a service: start it by hand with `./run.sh start` when you
+# use the toy (so the laptop isn't loading models all the time). The TOY is a
+# service because it lives inside the plush and must come up on its own on power.
+# Generated with the Pi's LOCAL paths/user/python: nothing hardcoded.
+
+install_toy() {
+  local toydir="$REMOTE_TOY_DIR"
+  case "$toydir" in /*) : ;; *) toydir="/home/$PI_USER/$toydir" ;; esac
+  $SSH "$PI_USER@$PI_HOST" "sudo tee /etc/systemd/system/philosopher-toy.service >/dev/null" <<EOF
+[Unit]
+Description=Philosopher toy (the body)
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$PI_USER
+WorkingDirectory=$toydir
+ExecStart=/usr/bin/python3 -u -m toy_client.main
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  $SSH "$PI_USER@$PI_HOST" "sudo systemctl daemon-reload && sudo systemctl enable --now philosopher-toy.service" \
+    && echo "[toy] servicio instalado y arrancado en $PI_HOST (journalctl -u philosopher-toy -f)" \
+    || echo "[toy] ✗ no se pudo instalar (¿Pi encendida y en red?)"
+}
+
 case "${1:-start}" in
   start)  start_server; start_toy; echo; status ;;
   stop)   stop_toy; stop_server ;;
   status) status ;;
   logs)   echo "== tail -f $SERVER_LOG (Ctrl-C para salir) =="; tail -f "$SERVER_LOG" ;;
   toylog) $SSH "$PI_USER@$PI_HOST" "tail -30 '$TOY_LOG'" 2>/dev/null || echo "(Pi no accesible)" ;;
-  *) echo "uso: $0 [start|stop|status|logs|toylog]"; exit 1 ;;
+  install|install-toy) install_toy ;;   # autostart the toy on the Pi
+  uninstall)
+    $SSH "$PI_USER@$PI_HOST" "sudo systemctl disable --now philosopher-toy.service 2>/dev/null; sudo rm -f /etc/systemd/system/philosopher-toy.service; sudo systemctl daemon-reload" \
+      && echo "[toy] servicio desinstalado" || echo "[toy] (no accesible)" ;;
+  *) echo "uso: $0 [start|stop|status|logs|toylog|install|uninstall]"; exit 1 ;;
 esac
