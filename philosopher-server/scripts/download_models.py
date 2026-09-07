@@ -49,9 +49,14 @@ def fetch_emotion() -> bool:
 
 
 def fetch_piper() -> bool:
+    from philosopher.config.settings import get_settings
+    if get_settings().tts.provider != "piper":
+        # settings.tts.voice belongs to the active provider (e.g. a kokoro voice
+        # id like "em_santa"), which is not a piper voice — don't try to fetch it.
+        print("== Piper TTS voice (skipped; provider != piper) ==")
+        return True
     print("== Piper TTS voice ==")
     try:
-        from philosopher.config.settings import get_settings
         from philosopher.tts.engine import PiperTTS
         voice = get_settings().tts.voice
         # Constructing PiperTTS (non-mock, empty path) triggers the download.
