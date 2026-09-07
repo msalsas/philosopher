@@ -125,7 +125,7 @@ class MicrophoneCapture:
         gated_until = 0.0
 
         while True:
-            pcm_bytes = self._read_chunk()
+            pcm_bytes = await asyncio.to_thread(self._read_chunk)
             if not pcm_bytes:  # arecord stopped delivering; back off, don't spin
                 await asyncio.sleep(0.1)
                 continue

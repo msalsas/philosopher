@@ -24,6 +24,7 @@ class ToyWebSocketClient:
         self.session: aiohttp.ClientSession | None = None
         self.ws: aiohttp.ClientWebSocketResponse | None = None
         self._reconnect_count = 0
+        self._heartbeat_task: asyncio.Task | None = None
 
     async def connect(self):
         # Close any stale session so reconnects don't leak connections.
@@ -34,13 +35,16 @@ class ToyWebSocketClient:
             f"{self.url}/ws?toy_id={self.toy_id}",
         )
         self._reconnect_count = 0
-        asyncio.create_task(self._heartbeat_loop())
+        # Replace any prior heartbeat loop so reconnects don't leak one each.
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def _heartbeat_loop(self):
         while self.ws and not self.ws.closed:
             await self.send_json({
                 "type": "ping",
-                "timestamp": asyncio.get_event_loop().time(),
+                "timestamp": asyncio.get_running_loop().time(),
             })
             await asyncio.sleep(5)
 
@@ -94,6 +98,8 @@ class ToyWebSocketClient:
         return {"type": "none"}
 
     async def close(self):
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
         if self.ws:
             await self.ws.close()
         if self.session:
