@@ -64,8 +64,10 @@ La razon de esta separacion es flexibilidad: puedes cambiar el modelo de IA sin 
 
 **El usuario se acerca al peluche.**
 
-- La camara del peluche captura imagenes continuamente
-- Detecta si hay una cara en el encuadre
+- La camara del peluche captura una imagen por turno (modo on-speech, el que
+  ahorra energia en el montaje del peluche; existe un modo continuo pero pide
+  mas potencia) y la envia al servidor
+- El servidor detecta si hay una cara en el encuadre
 - Si es una cara nueva: la aprende, genera un ID unico, y lo guarda
 - Si es una cara conocida: la reconoce y recupera su nombre
 - Ademas, analiza la expresion facial para detectar la emocion:
@@ -214,7 +216,7 @@ Recuerdo: A Maria le gusta hablar de musica.
 
 El ciclo se repite:
 
-1. La camara sigue viendo la cara de Maria
+1. La camara vuelve a capturar la cara de Maria en el siguiente turno
 2. El microfono sigue escuchando
 3. Cada nuevo mensaje de Maria pasa por todo el pipeline
 4. La memoria a corto plazo mantiene el contexto de la conversacion actual
