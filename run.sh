@@ -36,24 +36,24 @@ SSH="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=6"
 TOYPAT='[t]oy_client.main'
 
 if [ -z "$PI_HOST" ]; then
-  echo "ERROR: falta PI_HOST. Crea run.local.env (ver run.local.env.example) o: PI_HOST=<ip> ./run.sh $*" >&2
+  echo "ERROR: PI_HOST not set. Create run.local.env (see run.local.env.example) or: PI_HOST=<ip> ./run.sh $*" >&2
   exit 2
 fi
 
 server_up() { curl -s --max-time 3 "$HEALTH" -o /dev/null 2>/dev/null; }
 
 start_server() {
-  if server_up; then echo "[server] ya está corriendo"; return; fi
+  if server_up; then echo "[server] already running"; return; fi
   # Ensure the ML models are present (idempotent: skips fast when already cached,
   # downloads on the first run). Kokoro in particular is NOT auto-fetched at
   # startup, so without this the toy would degrade to text-only on a fresh clone.
-  echo "[server] comprobando modelos (descarga solo la primera vez)..."
+  echo "[server] checking models (downloads only on the first run)..."
   ( cd "$SERVER_DIR" && python scripts/download_models.py ) \
-    || echo "[server] ⚠ prefetch de modelos falló; el server arranca igual y degrada lo que falte (ver /health)"
-  echo "[server] arrancando ($SERVER_DIR)..."
+    || echo "[server] ⚠ model prefetch failed; starting anyway, missing pieces degrade (see /health)"
+  echo "[server] starting ($SERVER_DIR)..."
   ( cd "$SERVER_DIR" && nohup python -m philosopher.main --server >"$SERVER_LOG" 2>&1 & disown )
-  for _ in $(seq 1 25); do sleep 2; server_up && { echo "[server] listo  (log: $SERVER_LOG)"; return; }; done
-  echo "[server] ✗ no respondió a tiempo — revisa $SERVER_LOG"
+  for _ in $(seq 1 25); do sleep 2; server_up && { echo "[server] ready  (log: $SERVER_LOG)"; return; }; done
+  echo "[server] ✗ did not respond in time — check $SERVER_LOG"
 }
 
 toy_is_service() { $SSH "$PI_USER@$PI_HOST" "systemctl is-enabled philosopher-toy.service" >/dev/null 2>&1; }
@@ -61,44 +61,44 @@ toy_is_service() { $SSH "$PI_USER@$PI_HOST" "systemctl is-enabled philosopher-to
 start_toy() {
   if toy_is_service; then
     $SSH "$PI_USER@$PI_HOST" "sudo systemctl restart philosopher-toy.service" >/dev/null 2>&1 \
-      && echo "[toy] ✓ servicio (re)arrancado en $PI_HOST" \
-      || echo "[toy] ✗ fallo al (re)arrancar el servicio"
+      && echo "[toy] ✓ service (re)started on $PI_HOST" \
+      || echo "[toy] ✗ failed to (re)start the service"
     return
   fi
-  echo "[toy] arrancando en $PI_USER@$PI_HOST ..."
+  echo "[toy] starting on $PI_USER@$PI_HOST ..."
   $SSH "$PI_USER@$PI_HOST" "pkill -9 -f '$TOYPAT' 2>/dev/null; sleep 1" >/dev/null 2>&1
   # timeout: the process survives via nohup; ssh closes even if the child lives on.
   timeout 8 $SSH "$PI_USER@$PI_HOST" \
     "cd '$REMOTE_TOY_DIR' && nohup python3 -u -m toy_client.main >'$TOY_LOG' 2>&1 </dev/null & disown" >/dev/null 2>&1
   sleep 5
   if $SSH "$PI_USER@$PI_HOST" "pgrep -f '$TOYPAT' >/dev/null" 2>/dev/null; then
-    echo "[toy] ✓ corriendo  (log en la Pi: $TOY_LOG)"
+    echo "[toy] ✓ running  (log on the Pi: $TOY_LOG)"
   else
-    echo "[toy] ✗ no arrancó — mira '$TOY_LOG' en la Pi (¿está encendida y en red?)"
+    echo "[toy] ✗ did not start — check '$TOY_LOG' on the Pi (is it powered and on the network?)"
   fi
 }
 
 stop_server() {
   # pattern without a self-match so it doesn't kill this very script
-  pkill -f 'philosopher[.]main --server' 2>/dev/null && echo "[server] parado" || echo "[server] no estaba corriendo"
+  pkill -f 'philosopher[.]main --server' 2>/dev/null && echo "[server] stopped" || echo "[server] was not running"
 }
 
 stop_toy() {
   if toy_is_service; then
     $SSH "$PI_USER@$PI_HOST" "sudo systemctl stop philosopher-toy.service" >/dev/null 2>&1 \
-      && echo "[toy] servicio parado" || echo "[toy] (no accesible)"
+      && echo "[toy] service stopped" || echo "[toy] (unreachable)"
     return
   fi
   $SSH "$PI_USER@$PI_HOST" "pkill -9 -f '$TOYPAT' 2>/dev/null" >/dev/null 2>&1 \
-    && echo "[toy] parado" || echo "[toy] (no accesible o no corría)"
+    && echo "[toy] stopped" || echo "[toy] (unreachable or not running)"
 }
 
 status() {
-  if server_up; then echo "[server] ✓ sano ($HEALTH)"; else echo "[server] ✗ caído"; fi
+  if server_up; then echo "[server] ✓ healthy ($HEALTH)"; else echo "[server] ✗ down"; fi
   if $SSH "$PI_USER@$PI_HOST" "pgrep -f '$TOYPAT' >/dev/null" 2>/dev/null; then
-    echo "[toy]    ✓ corriendo en $PI_HOST  ($($SSH "$PI_USER@$PI_HOST" 'uptime | grep -oE "up [^,]+"' 2>/dev/null))"
+    echo "[toy]    ✓ running on $PI_HOST  ($($SSH "$PI_USER@$PI_HOST" 'uptime | grep -oE "up [^,]+"' 2>/dev/null))"
   else
-    echo "[toy]    ✗ no corre (o Pi no accesible)"
+    echo "[toy]    ✗ not running (or Pi unreachable)"
   fi
 }
 
@@ -129,19 +129,19 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
   $SSH "$PI_USER@$PI_HOST" "sudo systemctl daemon-reload && sudo systemctl enable --now philosopher-toy.service" \
-    && echo "[toy] servicio instalado y arrancado en $PI_HOST (journalctl -u philosopher-toy -f)" \
-    || echo "[toy] ✗ no se pudo instalar (¿Pi encendida y en red?)"
+    && echo "[toy] service installed and started on $PI_HOST (journalctl -u philosopher-toy -f)" \
+    || echo "[toy] ✗ install failed (is the Pi powered and on the network?)"
 }
 
 case "${1:-start}" in
   start)  start_server; start_toy; echo; status ;;
   stop)   stop_toy; stop_server ;;
   status) status ;;
-  logs)   echo "== tail -f $SERVER_LOG (Ctrl-C para salir) =="; tail -f "$SERVER_LOG" ;;
-  toylog) $SSH "$PI_USER@$PI_HOST" "tail -30 '$TOY_LOG'" 2>/dev/null || echo "(Pi no accesible)" ;;
+  logs)   echo "== tail -f $SERVER_LOG (Ctrl-C to quit) =="; tail -f "$SERVER_LOG" ;;
+  toylog) $SSH "$PI_USER@$PI_HOST" "tail -30 '$TOY_LOG'" 2>/dev/null || echo "(Pi unreachable)" ;;
   install|install-toy) install_toy ;;   # autostart the toy on the Pi
   uninstall)
     $SSH "$PI_USER@$PI_HOST" "sudo systemctl disable --now philosopher-toy.service 2>/dev/null; sudo rm -f /etc/systemd/system/philosopher-toy.service; sudo systemctl daemon-reload" \
-      && echo "[toy] servicio desinstalado" || echo "[toy] (no accesible)" ;;
-  *) echo "uso: $0 [start|stop|status|logs|toylog|install|uninstall]"; exit 1 ;;
+      && echo "[toy] service uninstalled" || echo "[toy] (unreachable)" ;;
+  *) echo "usage: $0 [start|stop|status|logs|toylog|install|uninstall]"; exit 1 ;;
 esac
