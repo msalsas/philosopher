@@ -10,8 +10,8 @@ Philosopher es un peluche inteligente con el que puedes hablar. Tiene personalid
 
 ```
 +------------------------------------------------------------------+
-|  CAPA 1: Ordenador externo con LM Studio                         |
-|  (cualquier PC, Windows/Linux/Mac)                               |
+|  CAPA 1: Servidor LLM externo (OpenAI-compatible)                |
+|  (Ollama, llama.cpp, vLLM, LM Studio... cualquier PC)            |
 |  Corre el modelo de IA (LLM) - ej: Llama 3.1 8B                  |
 |  Solo recibe texto y devuelve texto. No tiene memoria ni         |
 |  personalidad propia.                                            |
