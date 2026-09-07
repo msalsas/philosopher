@@ -144,7 +144,7 @@ files and subproject `README.md`s are stubs that point here).
 CLI (`python -m philosopher.main`): `--server --host --port --personality --language --llm-url --llm-model --debug`.
 
 ### Personality YAML (`config/personalities/<lang>/<name>.yaml`)
-Top-level keys: `name, role, language, description, system_prompt, traits{empathy,curiosity,humor,formality,energy,optimism}, speech_patterns{greetings,farewells,…}, emotion_responses{happy,sad,angry,surprised,neutral,fear}, style{max_response_length,use_asterisks_for_actions,ask_questions,use_metaphors}, fallbacks{error,not_understood,…}, face_registration{…}`. `fallbacks` is what makes fallback text localized (`personality.fallback(key)`); `face_registration` tunes the name-ask. Personality slugs are language-neutral (same key across languages): `philosopher, curious, poetic, friend, wise` in `es/`; `philosopher` in `en/` so far.
+Top-level keys: `name, role, language, description, system_prompt, traits{empathy,curiosity,humor,formality,energy,optimism}, speech_patterns{greetings,farewells,…}, emotion_responses{happy,sad,angry,surprised,neutral,fear}, style{max_response_length,use_asterisks_for_actions,ask_questions,use_metaphors}, fallbacks{error,not_understood,…}, face_registration{…}`. `fallbacks` is what makes fallback text localized (`personality.fallback(key)`); `face_registration` tunes the name-ask. Personality slugs are language-neutral (same key across languages): `philosopher, curious, poetic, friend, wise`, available in both `es/` and `en/`.
 
 ### Memory architecture
 - **Short-term** (`memory/short_term.py`): in-RAM `deque` per `face_id` (unknown → `_anon`), lost on restart.
