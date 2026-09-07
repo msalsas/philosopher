@@ -66,6 +66,10 @@ class STTSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PHILOSOPHER_STT_")
     model: str = "tiny"
     device: str = "cpu"
+    # Transcription language. Empty = follow the app language
+    # (PHILOSOPHER_LANGUAGE); set PHILOSOPHER_STT_LANGUAGE to override (e.g. force
+    # "en" while the personality stays another language).
+    language: str = ""
     # faster-whisper quantization. "int8" suits CPU (the RPi4); use "float16" on
     # a CUDA GPU. Decoupled from device so a laptop/GPU can be tuned via env.
     compute_type: str = "int8"

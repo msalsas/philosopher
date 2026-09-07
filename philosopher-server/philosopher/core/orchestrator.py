@@ -140,7 +140,9 @@ class Orchestrator:
 
         _t0 = time.perf_counter()
         result = await self.stt.transcribe(
-            toy_id, confidence_threshold=self.settings.stt.confidence_threshold,
+            toy_id,
+            language=self.settings.stt.language or self.settings.personality.language,
+            confidence_threshold=self.settings.stt.confidence_threshold,
         )
         if _TIMING:
             print(f"[TIMING] STT={time.perf_counter() - _t0:.2f}s", flush=True)
