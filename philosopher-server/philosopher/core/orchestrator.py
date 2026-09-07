@@ -199,7 +199,7 @@ class Orchestrator:
             if len(remainder) < 3:  # just the wake word -> only greet
                 await self._speak(toy_id, self.personality.greeting())
                 return None
-            return remainder  # one-shot: "despierta, cuéntame un chiste"
+            return remainder  # one-shot: "wake up, tell me a joke"
 
         # Awake: a deactivation phrase sends it back to sleep.
         if _match_phrase(norm, self.personality.sleep_words()):
@@ -353,7 +353,7 @@ class Orchestrator:
         _lt = time.perf_counter() - _t_llm
         if _TIMING:
             print(f"[TIMING] ctx={_ctx_dt:.2f}s LLM_first_tok={_ft:.2f}s "
-                  f"FIRST_AUDIO(desde speech_ended)={_fa:.2f}s LLM_total={_lt:.2f}s", flush=True)
+                  f"FIRST_AUDIO(since speech_ended)={_fa:.2f}s LLM_total={_lt:.2f}s", flush=True)
 
         # Store the full interaction once at the end.
         state.llm_response = full_response
