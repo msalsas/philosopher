@@ -96,6 +96,11 @@ class VisionSettings(BaseSettings):
     skip_similar: bool = True
     # Mean per-pixel grayscale delta (0-255) below which a frame counts as "same".
     skip_threshold: float = 2.0
+    # Face-match tolerance: a face is recognized as a known person only if its
+    # encoding is within this distance. Lower = stricter (fewer false positives,
+    # e.g. a poor camera matching everyone to one person); too low = fails to
+    # recognize the same person across frames. face_recognition default is 0.6.
+    tolerance: float = 0.6
     # Name-collision merge: a new face is folded into a same-named known face only
     # if their encodings are within this distance. Must be ≥ tolerance; the gap
     # (tolerance..merge_band) is the "same person, face drifted" band. Tune on hardware.

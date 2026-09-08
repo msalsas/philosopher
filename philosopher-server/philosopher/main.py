@@ -81,6 +81,7 @@ def main():
             memory_manager=orch.memory,
             mock=mock,
             emotion_model_path=settings.vision.emotion_model_path,
+            tolerance=settings.vision.tolerance,
             detect_width=settings.vision.detect_width,
             presence_gate=settings.vision.presence_gate,
             skip_similar=settings.vision.skip_similar,
