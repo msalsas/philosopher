@@ -105,9 +105,11 @@ async def node_format(state: AgentState, ctx: NodeCtx) -> AgentState:
 
 
 _NAME_SYS = (
-    "You extract the speaker's OWN first name from their message. Reply with ONLY "
-    "that name, capitalized, and nothing else — or the single word NONE if the "
-    "message does not state the speaker's own name."
+    "Extract ONLY the speaker's OWN first name — the name they call themselves "
+    "(e.g. 'me llamo Ana', 'soy Ana', 'my name is Ana' -> Ana). If they state "
+    "someone ELSE's name ('mi hermana se llama Marta', 'my friend is Marta') or "
+    "give no name, reply exactly NONE. Answer with just the name (capitalized) or "
+    "NONE, nothing else."
 )
 
 
