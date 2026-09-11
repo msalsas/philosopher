@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from philosopher.core.state import AgentState
 from philosopher.llm.client import LLMMessage
@@ -104,21 +105,53 @@ async def node_format(state: AgentState, ctx: NodeCtx) -> AgentState:
     return state
 
 
+def _prefix_re(prefixes: list[str]) -> re.Pattern | None:
+    """Regex capturing the (unicode-letter) word after any of `prefixes`."""
+    if not prefixes:
+        return None
+    alt = "|".join(re.escape(p) for p in prefixes)
+    return re.compile(rf"\b(?:{alt})\s+([^\W\d_]{{2,}})", re.IGNORECASE)
+
+
+def _extract_name(message: str, expect_name: bool, prefixes: list[str],
+                  soft_prefixes: list[str], not_names: list[str]) -> str | None:
+    """Pull a person's name from a reply using the personality's (localized)
+    openers: explicit `prefixes` ("me llamo X") are trusted on any turn; `soft`
+    ones ("soy X") and a bare single-word answer only when the name was just
+    asked (expect_name). No language is hardcoded here — phrases come from the
+    personality (see PersonalityEngine.name_prefixes/...)."""
+    intro = _prefix_re(prefixes)
+    m = intro.search(message) if intro else None
+    if not m and expect_name:
+        soft = _prefix_re(soft_prefixes)
+        m = soft.search(message) if soft else None
+    cand = m.group(1) if m else None
+    if cand is None and expect_name:  # bare answer, e.g. just "Ana"
+        words = message.strip().split()
+        if len(words) == 1 and words[0].strip(".,!?¡¿").lower() not in set(not_names):
+            cand = words[0]
+    if not cand:
+        return None
+    cand = cand.strip(".,!?¡¿").title()
+    return cand if len(cand) >= 2 and cand.isalpha() else None
+
+
 async def background_extract_name(state: AgentState, ctx: NodeCtx):
     """Learn the name of any face that doesn't have one yet — off the critical
-    path. Gated on expect_name (last turn asked) so noise isn't stored as a name."""
-    if not state.face_id or not state.expect_name:
+    path. An explicit "me llamo X" is accepted on any turn; softer forms need
+    expect_name (last turn asked) so noise isn't stored as a name. Name openers
+    are localized in the personality, so this works in any language."""
+    if not state.face_id:
         return
 
     face = await ctx.memory.long.get_face(state.face_id)
     if face and face.get("name"):
         return  # Already has a name
 
-    words = state.user_message.strip().split()
-    if not (1 <= len(words) <= 3):
-        return
-    name = words[-1].strip(".,!?").title()
-    if len(name) < 2 or not name.isalpha():
+    p = ctx.personality
+    name = _extract_name(state.user_message, state.expect_name,
+                         p.name_prefixes(), p.name_soft_prefixes(), p.not_names())
+    if not name:
         return
 
     # Name is just a label, not a unique key — two people can be "Pedro". If a

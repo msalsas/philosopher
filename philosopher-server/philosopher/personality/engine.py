@@ -101,6 +101,36 @@ class PersonalityEngine:
             "ask_name_prompt", "Hi, what's your name?"
         )
 
+    # Self-introduction openers for name learning, per language (multilingual:
+    # never hardcode these in the pipeline). `prefixes` are explicit ("me llamo")
+    # and trusted always; `soft` ("soy") only right after we asked; `not_names`
+    # are one-word replies to ignore. A personality YAML's `face_registration`
+    # may override any of these; otherwise the language default applies.
+    _DEFAULT_NAME_PREFIXES = {
+        "es": ["me llamo", "mi nombre es"],
+        "en": ["my name is", "i am called", "they call me"],
+    }
+    _DEFAULT_NAME_SOFT = {"es": ["soy"], "en": ["i am", "i'm"]}
+    _DEFAULT_NOT_NAMES = {
+        "es": ["no", "si", "hola", "que", "tal", "nada", "bien", "mal", "vale",
+               "ok", "claro", "bueno", "gracias", "adios", "yo", "eh", "oye"],
+        "en": ["no", "yes", "hi", "hello", "what", "nothing", "fine", "good",
+               "ok", "okay", "sure", "thanks", "bye", "me", "hey"],
+    }
+
+    def _fr(self, key: str, default_map: dict) -> list[str]:
+        fr = self._data.get("face_registration", {}) or {}
+        return fr.get(key) or default_map.get(self.s.language, [])
+
+    def name_prefixes(self) -> list[str]:
+        return self._fr("name_prefixes", self._DEFAULT_NAME_PREFIXES)
+
+    def name_soft_prefixes(self) -> list[str]:
+        return self._fr("name_soft_prefixes", self._DEFAULT_NAME_SOFT)
+
+    def not_names(self) -> list[str]:
+        return self._fr("not_names", self._DEFAULT_NOT_NAMES)
+
     def list_all(self) -> list[str]:
         base = Path(__file__).parent.parent / "config" / "personalities"
         lang_dir = base / self.s.language

@@ -50,14 +50,26 @@ async def test_extract_name_short_reply(ctx):
 
 
 @pytest.mark.asyncio
-async def test_extract_name_too_long(ctx):
+async def test_extract_name_from_long_intro(ctx):
+    # "Me llamo Juan Carlos Rodriguez" -> takes the first name after "me llamo".
     await ctx.memory.long._update_face("f2", None)
     state = AgentState(
         user_message="Me llamo Juan Carlos Rodriguez", face_id="f2", expect_name=True,
     )
     await background_extract_name(state, ctx)
     face = await ctx.memory.long.get_face("f2")
-    assert face["name"] is None
+    assert face["name"] == "Juan"
+
+
+@pytest.mark.asyncio
+async def test_extract_name_intro_without_ask(ctx):
+    # Explicit "me llamo X" is trusted even if we didn't just ask (expect_name
+    # False) — the real "Ana" case where her turn wasn't the ask turn.
+    await ctx.memory.long._update_face("f4", None)
+    state = AgentState(user_message="Yo me llamo Ana.", face_id="f4", expect_name=False)
+    await background_extract_name(state, ctx)
+    face = await ctx.memory.long.get_face("f4")
+    assert face["name"] == "Ana"
 
 
 @pytest.mark.asyncio
