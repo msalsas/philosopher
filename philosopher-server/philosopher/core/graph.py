@@ -17,6 +17,7 @@ from langgraph.graph import END, START, StateGraph
 from philosopher.core.nodes import (
     NodeCtx,
     node_format,
+    node_learn_name,
     node_memory,
     node_perception,
     node_prompt,
@@ -53,6 +54,7 @@ class AgentGraph:
         g.add_node("think", wrap(node_think))
         g.add_node("format", wrap(node_format))
         g.add_node("store", wrap(node_store))
+        g.add_node("learn_name", wrap(node_learn_name))
 
         g.add_edge(START, "perception")
         g.add_edge("perception", "memory")
@@ -60,7 +62,8 @@ class AgentGraph:
         g.add_edge("prompt", "think")
         g.add_edge("think", "format")
         g.add_edge("format", "store")
-        g.add_edge("store", END)
+        g.add_edge("store", "learn_name")
+        g.add_edge("learn_name", END)
         return g
 
     async def process(self, state: AgentState) -> AgentState:

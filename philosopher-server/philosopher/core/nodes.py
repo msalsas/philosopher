@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 
 from philosopher.core.state import AgentState
 from philosopher.llm.client import LLMMessage
@@ -105,54 +104,42 @@ async def node_format(state: AgentState, ctx: NodeCtx) -> AgentState:
     return state
 
 
-def _prefix_re(prefixes: list[str]) -> re.Pattern | None:
-    """Regex capturing the (unicode-letter) word after any of `prefixes`."""
-    if not prefixes:
+_NAME_SYS = (
+    "You extract the speaker's OWN first name from their message. Reply with ONLY "
+    "that name, capitalized, and nothing else — or the single word NONE if the "
+    "message does not state the speaker's own name."
+)
+
+
+async def _llm_extract_name(llm, message: str) -> str | None:
+    """Ask the LLM for the speaker's own first name (robust + multilingual). The
+    LLM client never raises (empty content on error), so a bad call yields None."""
+    resp = await llm.chat(
+        [LLMMessage(role="user", content=message)],
+        system_prompt=_NAME_SYS, max_tokens=8,
+    )
+    tokens = (resp.content or "").strip().split()
+    if not tokens:
         return None
-    alt = "|".join(re.escape(p) for p in prefixes)
-    return re.compile(rf"\b(?:{alt})\s+([^\W\d_]{{2,}})", re.IGNORECASE)
-
-
-def _extract_name(message: str, expect_name: bool, prefixes: list[str],
-                  soft_prefixes: list[str], not_names: list[str]) -> str | None:
-    """Pull a person's name from a reply using the personality's (localized)
-    openers: explicit `prefixes` ("me llamo X") are trusted on any turn; `soft`
-    ones ("soy X") and a bare single-word answer only when the name was just
-    asked (expect_name). No language is hardcoded here — phrases come from the
-    personality (see PersonalityEngine.name_prefixes/...)."""
-    intro = _prefix_re(prefixes)
-    m = intro.search(message) if intro else None
-    if not m and expect_name:
-        soft = _prefix_re(soft_prefixes)
-        m = soft.search(message) if soft else None
-    cand = m.group(1) if m else None
-    if cand is None and expect_name:  # bare answer, e.g. just "Ana"
-        words = message.strip().split()
-        if len(words) == 1 and words[0].strip(".,!?¡¿").lower() not in set(not_names):
-            cand = words[0]
-    if not cand:
+    name = tokens[0].strip(".,!?¡¿").title()
+    if name.upper() == "NONE" or len(name) < 2 or not name.isalpha():
         return None
-    cand = cand.strip(".,!?¡¿").title()
-    return cand if len(cand) >= 2 and cand.isalpha() else None
+    return name
 
 
-async def background_extract_name(state: AgentState, ctx: NodeCtx):
-    """Learn the name of any face that doesn't have one yet — off the critical
-    path. An explicit "me llamo X" is accepted on any turn; softer forms need
-    expect_name (last turn asked) so noise isn't stored as a name. Name openers
-    are localized in the personality, so this works in any language."""
+async def node_learn_name(state: AgentState, ctx: NodeCtx) -> AgentState:
+    """Pipeline node: learn the speaker's name for a face that has none yet, via
+    an LLM (any language). Runs last, after the reply, so it adds no latency; it
+    does nothing when there is no face or the message states no name."""
     if not state.face_id:
-        return
-
+        return state
     face = await ctx.memory.long.get_face(state.face_id)
     if face and face.get("name"):
-        return  # Already has a name
+        return state  # already named
 
-    p = ctx.personality
-    name = _extract_name(state.user_message, state.expect_name,
-                         p.name_prefixes(), p.name_soft_prefixes(), p.not_names())
+    name = await _llm_extract_name(ctx.llm, state.user_message)
     if not name:
-        return
+        return state
 
     # Name is just a label, not a unique key — two people can be "Pedro". If a
     # face with this name already exists, only merge into it when the biometrics
@@ -165,6 +152,7 @@ async def background_extract_name(state: AgentState, ctx: NodeCtx):
         await ctx.memory.long.merge_face(state.face_id, existing["face_id"], encoding=enc)
     else:
         await ctx.memory.long.update_face_name(state.face_id, name)
+    return state
 
 
 async def node_store(state: AgentState, ctx: NodeCtx) -> AgentState:
@@ -173,10 +161,4 @@ async def node_store(state: AgentState, ctx: NodeCtx) -> AgentState:
         await ctx.memory.add(state.message, state.formatted, state.emotion,
                              state.face_id, state.face_name)
     state.turn += 1
-
-    # Background face name extraction (zero latency). Fire-and-forget, but log
-    # any failure instead of letting it vanish as an unretrieved task exception.
-    task = asyncio.create_task(background_extract_name(state, ctx))
-    task.add_done_callback(_log_task_error)
-
     return state

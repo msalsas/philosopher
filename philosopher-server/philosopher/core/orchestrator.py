@@ -1,6 +1,7 @@
 """Main orchestrator that coordinates all server modules."""
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import signal
@@ -11,8 +12,10 @@ from typing import Any
 from philosopher.config.settings import Settings, get_settings
 from philosopher.core.graph import AgentGraph, NodeCtx
 from philosopher.core.nodes import (
+    _log_task_error,
     build_messages,
     node_format,
+    node_learn_name,
     node_memory,
     node_perception,
     node_prompt,
@@ -70,8 +73,6 @@ class Orchestrator:
         # (for the inactivity auto-sleep).
         self.awake: dict[str, bool] = {}
         self.last_active: dict[str, float] = {}
-        # Per-toy: did last turn ask the person's name? (gates name extraction)
-        self.awaiting_name: dict[str, bool] = {}
         self._running = False
 
     async def init(self) -> None:
@@ -298,11 +299,6 @@ class Orchestrator:
         # Shared message assembly (incl. new-face introduction / name-ask).
         messages = build_messages(state)
 
-        # Name handshake: this message is a name answer only if last turn asked;
-        # we ask this turn when there's a face with no name.
-        state.expect_name = self.awaiting_name.get(toy_id, False)
-        self.awaiting_name[toy_id] = bool(state.face_id and not state.face_name)
-
         buffer = ""
         full_response = ""
         formatted_parts: list[str] = []
@@ -359,6 +355,9 @@ class Orchestrator:
         state.llm_response = full_response
         await node_format(state, self.graph.ctx)
         await node_store(state, self.graph.ctx)
+        # Learn the name off the critical path (LLM call, after the reply is sent).
+        _t = asyncio.create_task(node_learn_name(state, self.graph.ctx))
+        _t.add_done_callback(_log_task_error)
         await self._emit(EventType.RESPONSE_READY,
                          face_id=state.face_id, text=full_response)
 
