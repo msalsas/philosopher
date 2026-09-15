@@ -66,11 +66,21 @@ class PersonalityEngine:
         w = self._data.get("wake", {}) or {}
         return w.get("deactivate") or self._DEFAULT_SLEEP
 
+    # Style rule kept out of every personality YAML: some LLMs drift into
+    # gender-neutral "@"/"x" word endings (amig@, desconocidx), which the TTS
+    # then reads aloud as "arroba"/"equis". Forbid it, per language.
+    _STYLE = {
+        "es": "Escribe en español natural. Nunca uses «@» ni «x» como "
+              "terminación de género: escribe 'amigo' o 'amiga', jamás 'amig@'.",
+        "en": "Write in natural English; never use '@' or 'x' as a "
+              "gender-neutral word ending.",
+    }
+
     def build_prompt(
         self, emotion: str | None = None, face_name: str | None = None,
         memories: list | None = None,
     ) -> str:
-        parts = [self.system_prompt]
+        parts = [self.system_prompt, self._STYLE.get(self.s.language, self._STYLE["en"])]
         if face_name:
             parts.append(
                 f"You are talking to {face_name}. Address them by their name "
