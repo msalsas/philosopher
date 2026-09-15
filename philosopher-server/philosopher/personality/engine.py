@@ -31,6 +31,10 @@ class PersonalityEngine:
         if not f.exists():
             f = base / "es" / "philosopher.yaml"
         self._data = yaml.safe_load(f.open(encoding="utf-8"))
+        # Universal per-language instructions prepended to every personality
+        # (config, not code): an optional `_base.yaml` in the language folder.
+        bf = base / lang / "_base.yaml"
+        self._base = yaml.safe_load(bf.open(encoding="utf-8")) if bf.exists() else {}
         return self._data
 
     @property
@@ -66,21 +70,14 @@ class PersonalityEngine:
         w = self._data.get("wake", {}) or {}
         return w.get("deactivate") or self._DEFAULT_SLEEP
 
-    # Style rule kept out of every personality YAML: some LLMs drift into
-    # gender-neutral "@"/"x" word endings (amig@, desconocidx), which the TTS
-    # then reads aloud as "arroba"/"equis". Forbid it, per language.
-    _STYLE = {
-        "es": "Escribe en español natural. Nunca uses «@» ni «x» como "
-              "terminación de género: escribe 'amigo' o 'amiga', jamás 'amig@'.",
-        "en": "Write in natural English; never use '@' or 'x' as a "
-              "gender-neutral word ending.",
-    }
-
     def build_prompt(
         self, emotion: str | None = None, face_name: str | None = None,
         memories: list | None = None,
     ) -> str:
-        parts = [self.system_prompt, self._STYLE.get(self.s.language, self._STYLE["en"])]
+        parts = [self.system_prompt]
+        instructions = (self._base or {}).get("instructions")
+        if instructions:
+            parts.append(instructions.strip())
         if face_name:
             parts.append(
                 f"You are talking to {face_name}. Address them by their name "
@@ -115,5 +112,5 @@ class PersonalityEngine:
         base = Path(__file__).parent.parent / "config" / "personalities"
         lang_dir = base / self.s.language
         if lang_dir.exists():
-            return [f.stem for f in lang_dir.glob("*.yaml")]
+            return [f.stem for f in lang_dir.glob("*.yaml") if not f.stem.startswith("_")]
         return []

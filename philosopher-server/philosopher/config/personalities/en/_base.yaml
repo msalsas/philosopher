@@ -1,0 +1,4 @@
+# Universal instructions prepended to EVERY en personality's system prompt.
+# (Not a personality — the loader ignores files starting with "_".)
+instructions: |
+  Write in natural English. Never use '@' or 'x' as a gender-neutral word ending.

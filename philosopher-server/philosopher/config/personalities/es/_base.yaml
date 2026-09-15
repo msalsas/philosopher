@@ -1,0 +1,5 @@
+# Universal instructions prepended to EVERY es personality's system prompt.
+# (Not a personality — the loader ignores files starting with "_".)
+instructions: |
+  Escribe en español natural. Nunca uses «@» ni «x» como terminación de género:
+  escribe 'amigo' o 'amiga', jamás 'amig@' ni 'amigx'.
