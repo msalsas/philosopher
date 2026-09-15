@@ -88,6 +88,10 @@ class VisionProcessor:
         # Gate 2: downscale for detection.
         small, scale = self._downscale(frame)
 
+        # White-balance the detection frame: the NoIR camera's purple cast
+        # otherwise defeats the HOG face detector (verified on-device).
+        small = self._white_balance(small)
+
         # Gate 3: cheap presence check before the expensive dlib path.
         if self.presence_gate and not self._has_face_fast(small):
             return self._remember(thumb, {"faces": [], "primary_face": None})
@@ -136,6 +140,18 @@ class VisionProcessor:
                 "confidence": 0.9,
             })
         return faces
+
+    @staticmethod
+    def _white_balance(frame: np.ndarray) -> np.ndarray:
+        """Gray-world white balance: neutralizes a colour cast (e.g. the NoIR
+        camera's purple/IR tint) so it doesn't defeat face detection."""
+        b, g, r = cv2.split(frame.astype(np.float32))
+        mb, mg, mr = (b.mean() or 1.0, g.mean() or 1.0, r.mean() or 1.0)
+        k = (mb + mg + mr) / 3.0
+        b = np.clip(b * k / mb, 0, 255)
+        g = np.clip(g * k / mg, 0, 255)
+        r = np.clip(r * k / mr, 0, 255)
+        return cv2.merge([b, g, r]).astype(np.uint8)
 
     def _downscale(self, frame) -> tuple[np.ndarray, float]:
         """Return (downscaled frame, scale) where full = small * scale."""
