@@ -57,28 +57,21 @@ async def node_prompt(state: AgentState, ctx: NodeCtx) -> AgentState:
         emotion=state.emotion,
         face_name=state.face_name,
         memories=state.long_memories,
+        is_new_face=state.is_new_face,
     )
     return state
 
 
 def build_messages(state: AgentState) -> list[LLMMessage]:
-    """Assemble the LLM message list from short context + the current message,
-    plus a new-face introduction/name-ask instruction.
+    """Assemble the LLM message list: short context + the current message. The
+    name/greeting guidance lives in the SYSTEM prompt (see build_prompt), never
+    as bracketed user turns — the 8B otherwise echoed placeholders like "[name]".
 
     Shared by the HTTP graph (`node_think`) and the WebSocket streaming path
     (`Orchestrator._stream_response`) so both behave identically.
     """
     msgs = [LLMMessage(role=m["role"], content=m["content"]) for m in state.short_context[-5:]]
     msgs.append(LLMMessage(role="user", content=state.message))
-    if state.is_new_face and state.face_name:
-        msgs.append(LLMMessage(
-            role="user", content=f"[Introduce yourself to {state.face_name}]"))
-    elif not state.face_name:
-        # New face, or a known one still unnamed — keep asking so it can be learned.
-        msgs.append(LLMMessage(
-            role="user",
-            content="[You don't know this person's name yet. "
-                    "Greet them warmly and ask their name.]"))
     return msgs
 
 

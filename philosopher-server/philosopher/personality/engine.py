@@ -72,16 +72,24 @@ class PersonalityEngine:
 
     def build_prompt(
         self, emotion: str | None = None, face_name: str | None = None,
-        memories: list | None = None,
+        memories: list | None = None, is_new_face: bool = False,
     ) -> str:
         parts = [self.system_prompt]
         instructions = (self._base or {}).get("instructions")
         if instructions:
             parts.append(instructions.strip())
-        if face_name:
+        if face_name and is_new_face:
             parts.append(
-                f"You are talking to {face_name}. Address them by their name "
-                f"naturally now and then (not in every sentence).")
+                f"You are meeting {face_name} for the first time. Introduce "
+                f"yourself warmly.")
+        elif face_name:
+            parts.append(
+                f"You are talking to {face_name}. Use their name naturally in "
+                f"the conversation.")
+        else:
+            parts.append(
+                "You don't know this person's name yet. Greet them warmly and, "
+                "at some point, ask what their name is.")
         if emotion:
             parts.append(f"The person seems {emotion}.")
         if memories:
