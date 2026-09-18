@@ -74,6 +74,11 @@ class STTSettings(BaseSettings):
     # a CUDA GPU. Decoupled from device so a laptop/GPU can be tuned via env.
     compute_type: str = "int8"
     confidence_threshold: float = -0.5
+    # Whisper's no_speech_prob (0-1) above which an utterance is treated as
+    # background NOISE, not speech: the toy ignores it silently instead of
+    # replying "I didn't catch that". Real speech sits well below this; raise
+    # it toward 1.0 to silence fewer things (1.0 disables noise-skipping).
+    no_speech_threshold: float = 0.6
     # CPU threads for faster-whisper decoding. 0 = auto (all cores). On a
     # power-marginal Pi, lowering this (e.g. 2) shrinks the current spike that
     # can trigger under-voltage throttling -- trading peak speed for consistency.

@@ -149,17 +149,29 @@ class Orchestrator:
             print(f"[TIMING] STT={time.perf_counter() - _t0:.2f}s", flush=True)
 
         text = result.get("text", "")
-        # Couldn't transcribe (low confidence or empty) — still needs a reply so
-        # the toy releases its per-turn mic gate.
-        low_or_empty = bool(result.get("low_confidence")) or not text.strip()
+        # Split the two "no usable transcript" cases apart, because they deserve
+        # opposite reactions:
+        #  - NOISE (background sound, nobody talking): empty transcript, or whisper
+        #    flags it as non-speech (no_speech_prob high). Ignore it SILENTLY — a
+        #    "didn't catch that" every time a door slams is worse than nothing.
+        #  - unclear SPEECH (someone spoke, we couldn't make it out): there IS a
+        #    transcript but confidence is low. Here we DO reply "please repeat".
+        # Either way the toy still gets a frame back so it releases its mic gate.
+        is_noise = (not text.strip()
+                    or result.get("no_speech_prob", 0.0)
+                    >= self.settings.stt.no_speech_threshold)
+        low_conf = bool(result.get("low_confidence"))
 
         # Wake gate (opt-in): returns the request to answer, or None to stay quiet.
         if self.settings.personality.wake_enabled:
-            text = await self._apply_wake_gate(toy_id, text, low_or_empty)
+            text = await self._apply_wake_gate(toy_id, text, is_noise, low_conf)
             if text is None:
                 return
-        elif low_or_empty:
-            await self._send_not_understood(toy_id)
+        elif is_noise:
+            await self._send_idle(toy_id)  # background noise -> silent
+            return
+        elif low_conf:
+            await self._send_not_understood(toy_id)  # unclear speech -> "repeat?"
             return
 
         face = self.last_vision.get(toy_id) or {}
@@ -167,7 +179,7 @@ class Orchestrator:
         await self._stream_response(toy_id, text, _t0)
 
     async def _apply_wake_gate(
-        self, toy_id: str, text: str, low_or_empty: bool = False,
+        self, toy_id: str, text: str, is_noise: bool = False, low_conf: bool = False,
     ) -> str | None:
         """Sleep/wake state machine. Returns the request to answer (activation
         phrase stripped), or None to stay quiet (mic gate still released)."""
@@ -179,8 +191,12 @@ class Orchestrator:
             awake = False
             self.awake[toy_id] = False
 
-        # Garbled/empty (usually noise): silent while asleep, "repeat?" while awake.
-        if low_or_empty:
+        # Background noise: always silent (asleep or awake). Unclear speech:
+        # silent while asleep, "repeat?" only while awake.
+        if is_noise:
+            await self._send_idle(toy_id)
+            return None
+        if low_conf:
             if awake:
                 await self._send_not_understood(toy_id)
             else:

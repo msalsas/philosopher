@@ -108,6 +108,12 @@ class StreamingSTT:
         seg_list = list(segments)
         text = " ".join(seg.text for seg in seg_list)
         confidence = min((seg.avg_logprob for seg in seg_list), default=-1.0)
+        # Whisper's own "this segment isn't speech" probability, averaged over the
+        # utterance (no segments at all -> definitely not speech, 1.0). Lets the
+        # caller tell background NOISE (ignore silently) from unclear SPEECH
+        # (ask to repeat). See Orchestrator.process_speech.
+        no_speech = (sum(seg.no_speech_prob for seg in seg_list) / len(seg_list)
+                     if seg_list else 1.0)
 
         self.audio_buffers[toy_id] = bytearray()
 
@@ -116,4 +122,5 @@ class StreamingSTT:
             "is_final": True,
             "confidence": confidence,
             "low_confidence": confidence < confidence_threshold,
+            "no_speech_prob": no_speech,
         }
