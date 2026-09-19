@@ -10,7 +10,8 @@ toy itself is a tiny, ML-free Raspberry Pi that just handles microphone, camera,
 speaker and servos.
 
 > Speech-to-text, face + emotion recognition, text-to-speech, memory and an
-> LLM-driven personality — streamed to the toy over WebSockets in real time.
+> LLM-driven personality — streamed to the toy over WebSockets in real time, and
+> able to run **100% on your own hardware with no internet and no cloud**.
 
 ---
 
@@ -48,6 +49,9 @@ External LLM  ──HTTP──▶  philosopher-server (laptop, the brain)  ◀�
 
 ## Features
 
+- 🔒 **Runs 100% local / offline** — pair it with a local LLM (Ollama, llama.cpp,
+  vLLM, LM Studio…) and every model runs on your own machines: nothing leaves your
+  LAN, no cloud, no data collected.
 - 🗣️ **Real-time voice conversation** — streamed sentence-by-sentence, so the toy
   starts speaking before the whole reply is generated.
 - 👤 **Knows who it's talking to** — face recognition by encoding distance, robust
@@ -62,6 +66,9 @@ External LLM  ──HTTP──▶  philosopher-server (laptop, the brain)  ◀�
 - 🔊 **Pluggable TTS** — local/offline neural (Kokoro, default), Piper, or online
   Microsoft Edge voices.
 - 💤 **Optional wake gate** — the toy can stay asleep until an activation phrase.
+- 🔌 **Plug-and-go** — `./run.sh install` registers the toy as a **systemd
+  service**, so it boots straight into the app and reconnects to the server on its
+  own whenever it's powered on — no login or manual start.
 - 📊 **Live dashboard** — who's present, per-person emotion histograms, a live
   emotion chart (`GET /dashboard`).
 
@@ -80,7 +87,7 @@ sudo apt install -y build-essential cmake espeak-ng   # cmake+toolchain build dl
 # edge TTS instead? sudo apt install ffmpeg
 ```
 
-**Server (the brain — on a laptop):**
+**1. Install the server** (the brain — on a laptop):
 
 ```bash
 cd philosopher-server
@@ -88,7 +95,6 @@ pip install -e ".[dev,tts-kokoro]"        # tts-kokoro = the default (local, off
 cp .env.example .env                      # point PHILOSOPHER_LLM_BASE_URL at your LLM
 python scripts/download_models.py         # pre-fetch the STT/vision/TTS models (optional)
 python scripts/check_runtime_deps.py      # readiness gate: dlib, TTS backend, cascade, models (exit≠0 if missing)
-python -m philosopher.main --server       # WebSocket + HTTP on :8080
 ```
 
 `check_runtime_deps.py` is the fastest way to find out if a from-scratch install
@@ -96,34 +102,36 @@ is complete — it reports exactly which library, binary or model is missing. Fu
 install details (including ARM64/Raspberry Pi notes) are in the
 [hardware runbook](./HARDWARE_RUNBOOK.md).
 
-No hardware or models handy? Everything runs stubbed:
-
-```bash
-MOCK_MODE=true python -m philosopher.main --server   # server, no models
-python scripts/fake_toy.py                           # drive it end-to-end, no toy
-```
-
-**Toy (the body — on a Raspberry Pi Zero WH):**
+**2. Install the toy** (the body — on a Raspberry Pi Zero WH):
 
 ```bash
 cd philosopher-toy
 pip install -e ".[dev]"
-export PHILOSOPHER_SERVER_URL=ws://<server-ip>:8080   # client appends /ws?toy_id=
-python -m toy_client.main
-PHILOSOPHER_MOCK=true python -m toy_client.main       # no hardware needed
+sudo apt install -y alsa-utils rpicam-apps   # its I/O binaries: audio (arecord/aplay) + camera (rpicam-still)
 ```
 
-On the real Pi the toy drives its I/O through system binaries (ALSA
-`arecord`/`aplay` for audio, libcamera `rpicam-still` for the camera), so install
-those first:
+The full Pi bring-up — GPIO/servo setup, camera and audio config — is in the
+[hardware runbook](./HARDWARE_RUNBOOK.md).
+
+**3. Run it.** `run.sh` is the launcher: it prefetches the models, starts the
+server on this machine and the toy on the Pi (over SSH), and can install the toy
+as a boot service. Create `run.local.env` first (see `run.local.env.example`) with
+your Pi's `PI_HOST`:
 
 ```bash
-sudo apt install -y alsa-utils rpicam-apps
+./run.sh start        # start server + toy
+./run.sh status       # health of both
+./run.sh stop         # stop both
+./run.sh install      # autostart the toy on boot (systemd) — then it just comes up when powered on
 ```
 
-The full Pi bring-up — GPIO/servo setup, camera and audio config, autostart — is
-in the [hardware runbook](./HARDWARE_RUNBOOK.md). None of this is needed when you
-run with `PHILOSOPHER_MOCK=true`.
+**No hardware or models handy?** Run the pieces directly, stubbed:
+
+```bash
+MOCK_MODE=true python -m philosopher.main --server   # server alone, no models
+python scripts/fake_toy.py                           # drive it end-to-end, no toy
+PHILOSOPHER_MOCK=true python -m toy_client.main      # toy client, no hardware
+```
 
 ## Hardware
 
