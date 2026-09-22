@@ -90,21 +90,15 @@ git clone https://github.com/msalsas/philosopher.git && cd philosopher
 Step 1 runs on the laptop, step 2 on the Pi (SSH into it), and step 3 from the
 laptop (it reaches the Pi over key-based SSH).
 
-**Prerequisites (system packages, not pip).** The server compiles `dlib` (for face
-recognition) and shells out to a TTS backend, so a bare machine needs a few OS
-packages first. On Debian/Ubuntu:
+**1. Install the server** (the brain — on the laptop):
 
 ```bash
-sudo apt install -y build-essential cmake espeak-ng   # cmake+toolchain build dlib; espeak-ng is Kokoro's phonemizer
-# piper TTS instead of Kokoro? install the `piper` binary separately (see runbook).
-# edge TTS instead? sudo apt install ffmpeg
-```
+# system packages (not pip): build-essential + cmake build dlib (face recognition); espeak-ng is Kokoro's phonemizer
+sudo apt install -y build-essential cmake espeak-ng
+# (piper TTS instead of Kokoro? install the `piper` binary separately — see runbook. edge TTS? also `sudo apt install -y ffmpeg`.)
 
-**1. Install the server** (the brain — on a laptop):
-
-```bash
 cd philosopher-server
-pip install -e ".[dev,tts-kokoro]"        # tts-kokoro = the default (local, offline) voice backend
+pip install -e ".[tts-kokoro]"            # tts-kokoro = the default (local, offline) voice backend  (add ,dev to also run the tests)
 cp .env.example .env                      # point PHILOSOPHER_LLM_BASE_URL at your LLM
 python scripts/download_models.py         # pre-fetch the STT/vision/TTS models (optional)
 python scripts/check_runtime_deps.py      # readiness gate: dlib, TTS backend, cascade, models (exit≠0 if missing)
@@ -118,10 +112,12 @@ install details (including ARM64/Raspberry Pi notes) are in the
 **2. Install the toy** (the body — on a Raspberry Pi Zero WH):
 
 ```bash
+# system packages (not pip): its I/O binaries — audio (arecord/aplay) + camera (rpicam-still)
+sudo apt install -y alsa-utils rpicam-apps
+
 cd philosopher-toy
-pip install -e ".[dev]"
+pip install -e .                             # add ,dev only to run the tests -> pip install -e ".[dev]"
 cp .env.example .env                         # set PHILOSOPHER_SERVER_URL to the server machine's IP
-sudo apt install -y alsa-utils rpicam-apps   # its I/O binaries: audio (arecord/aplay) + camera (rpicam-still)
 ```
 
 The full Pi bring-up — GPIO/servo setup, camera and audio config — is in the
