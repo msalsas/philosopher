@@ -110,6 +110,7 @@ install details (including ARM64/Raspberry Pi notes) are in the
 ```bash
 cd philosopher-toy
 pip install -e ".[dev]"
+cp .env.example .env                         # set PHILOSOPHER_SERVER_URL to the server machine's IP
 sudo apt install -y alsa-utils rpicam-apps   # its I/O binaries: audio (arecord/aplay) + camera (rpicam-still)
 ```
 
