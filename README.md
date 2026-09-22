@@ -17,9 +17,12 @@ speaker and servos.
 
 ## Demo
 
-<!-- Videos: one per personality, in Spanish and English. -->
+<!-- Replace VIDEO_ID_ES / VIDEO_ID_EN with the real YouTube IDs once the videos are published. -->
 
-*(Coming soon — recorded walkthroughs of each personality, in Spanish and English.)*
+[![Watch Philosopher answer "the meaning of life" as five personalities](docs/toy.jpg)](https://youtu.be/VIDEO_ID_ES)
+
+▶️ The same question — *what is the meaning of life?* — asked to each personality:
+**[🇪🇸 Español](https://youtu.be/VIDEO_ID_ES)** · **[🇬🇧 English](https://youtu.be/VIDEO_ID_EN)**
 
 ---
 
