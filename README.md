@@ -80,6 +80,16 @@ External LLM  ──HTTP──▶  philosopher-server (laptop, the brain)  ◀�
 You need an OpenAI-compatible LLM endpoint running somewhere (e.g. LM Studio or
 Ollama with an ~8B model).
 
+**0. Get the code** on **both** machines — one repo holds both projects, so clone
+it on the laptop *and* on the Pi:
+
+```bash
+git clone https://github.com/msalsas/philosopher.git && cd philosopher
+```
+
+Step 1 runs on the laptop, step 2 on the Pi (SSH into it), and step 3 from the
+laptop (it reaches the Pi over key-based SSH).
+
 **Prerequisites (system packages, not pip).** The server compiles `dlib` (for face
 recognition) and shells out to a TTS backend, so a bare machine needs a few OS
 packages first. On Debian/Ubuntu:
