@@ -146,13 +146,11 @@ PHILOSOPHER_MOCK=true python -m toy_client.main      # toy client, no hardware
 ## Hardware
 
 The shipped toy is a **Raspberry Pi Zero WH (512 MB)** with a USB microphone, a
-USB speaker, a NoIR OV5647 CSI camera, and a head servo. The head runs on
-**hardware PWM**, ramped a step at a time so it pans **smoothly** (no software-PWM
-tremor) and then **released at rest** (duty 0, drawing no current) so it never
-browns out the 5 V rail alongside the audio amp. The arm servos in the pin map are
-disabled on this rig — only the head moves. The full bring-up sequence —
-dlib/Piper/model install, camera and audio setup, the servo power gotchas,
-autostart — is in [`HARDWARE_RUNBOOK.md`](./HARDWARE_RUNBOOK.md).
+USB speaker, a NoIR OV5647 CSI camera, and a head servo (hardware PWM, smooth
+ramped motion; the arm servos in the pin map are disabled — only the head moves).
+The full bring-up sequence — dlib/Piper/model install, camera and audio setup, the
+head-servo hardware-PWM config, the power gotchas, autostart — is in
+[`HARDWARE_RUNBOOK.md`](./HARDWARE_RUNBOOK.md).
 
 ## Documentation
 
