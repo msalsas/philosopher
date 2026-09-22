@@ -7,7 +7,7 @@ picks up the emotion on their face, and holds a real conversation in a chosen
 personality (a stoic philosopher, a curious child, a poet…). It remembers each
 person separately across conversations. All of the AI runs on a nearby laptop; the
 toy itself is a tiny, ML-free Raspberry Pi that just handles microphone, camera,
-speaker and servos.
+speaker and a head servo.
 
 > Speech-to-text, face + emotion recognition, text-to-speech, memory and an
 > LLM-driven personality — streamed to the toy over WebSockets in real time, and
@@ -35,7 +35,7 @@ low-power I/O node.
 
 ```
 External LLM  ──HTTP──▶  philosopher-server (laptop, the brain)  ◀──WebSocket──▶  philosopher-toy (Pi Zero WH, I/O only)
-  any OpenAI-compatible   STT · vision · TTS · LangGraph · memory                  mic · camera · speaker · servos
+  any OpenAI-compatible   STT · vision · TTS · LangGraph · memory                  mic · camera · speaker · head servo
   endpoint, ~8B model
 ```
 
@@ -146,10 +146,13 @@ PHILOSOPHER_MOCK=true python -m toy_client.main      # toy client, no hardware
 ## Hardware
 
 The shipped toy is a **Raspberry Pi Zero WH (512 MB)** with a USB microphone, a
-small speaker + amplifier, a NoIR OV5647 CSI camera, and a head servo on hardware
-PWM. The full bring-up sequence — dlib/Piper/model install, camera and audio
-setup, the servo power gotchas, autostart — is in
-[`HARDWARE_RUNBOOK.md`](./HARDWARE_RUNBOOK.md).
+USB speaker, a NoIR OV5647 CSI camera, and a head servo. The head runs on
+**hardware PWM**, ramped a step at a time so it pans **smoothly** (no software-PWM
+tremor) and then **released at rest** (duty 0, drawing no current) so it never
+browns out the 5 V rail alongside the audio amp. The arm servos in the pin map are
+disabled on this rig — only the head moves. The full bring-up sequence —
+dlib/Piper/model install, camera and audio setup, the servo power gotchas,
+autostart — is in [`HARDWARE_RUNBOOK.md`](./HARDWARE_RUNBOOK.md).
 
 ## Documentation
 
