@@ -1,5 +1,7 @@
 # Philosopher 🐘
 
+[![CI](https://github.com/msalsas/philosopher/actions/workflows/ci.yml/badge.svg)](https://github.com/msalsas/philosopher/actions/workflows/ci.yml)
+
 **A conversational-AI plush toy that recognizes your face, reads your mood, remembers you, and talks back — with a personality.**
 
 Philosopher is a soft toy with a brain. It listens, sees who is in front of it,

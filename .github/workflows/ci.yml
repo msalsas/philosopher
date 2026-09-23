@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  server:
+    name: Server — lint & tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: philosopher-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # dlib (face_recognition) compiles from source; espeak-ng is Kokoro's phonemizer.
+      - name: Install system packages
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake espeak-ng
+
+      - name: Install package
+        run: pip install -e ".[dev,tts-kokoro]" ruff
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      # MOCK_MODE keeps tests from needing the ML model files on disk.
+      - name: Tests (pytest)
+        run: MOCK_MODE=true pytest tests/ -q
+
+  toy:
+    name: Toy — lint & tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: philosopher-toy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package
+        run: pip install -e ".[dev]" ruff
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Tests (pytest)
+        run: PHILOSOPHER_MOCK=true pytest tests/ -q
