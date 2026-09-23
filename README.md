@@ -19,12 +19,10 @@ speaker and a head servo.
 
 ## Demo
 
-<!-- Replace VIDEO_ID_ES / VIDEO_ID_EN with the real YouTube IDs once the videos are published. -->
-
-[![Watch Philosopher answer "the meaning of life" as five personalities](docs/toy.jpg)](https://youtu.be/VIDEO_ID_ES)
+[![Watch Philosopher answer "the meaning of life" as five personalities](docs/toy.jpg)](https://youtu.be/Wlafq9nP06E)
 
 ▶️ The same question — *what is the meaning of life?* — asked to each personality:
-**[🇪🇸 Español](https://youtu.be/VIDEO_ID_ES)** · **[🇬🇧 English](https://youtu.be/VIDEO_ID_EN)**
+**[🇪🇸 Español](https://youtu.be/OhAMHnFFu8c)** · **[🇬🇧 English](https://youtu.be/Wlafq9nP06E)**
 
 ---
 
