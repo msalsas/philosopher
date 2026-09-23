@@ -39,3 +39,14 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "N", "UP", "B", "C4", "SIM", "PTH"]
+# Style-only rules left off on the toy: the existing on-device code is verified
+# working and these would require touching it (import order, contextlib.suppress,
+# pathlib, dict.fromkeys). They flag no bug — CI keeps the real checks (E/F/…).
+ignore = ["I001", "SIM105", "PTH110", "PTH123", "C420"]
